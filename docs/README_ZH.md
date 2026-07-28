@@ -38,6 +38,25 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 任意 HTTP 图片 URL 的下载会受到来源网站 CORS 策略限制；工作区文件和直接粘贴的图片不受此限制。
 
+## Settings
+
+```json
+{
+  "gitpaste.github.repository": "owner/images", // GitHub仓库地址 格式：用户名/仓库名
+  "gitpaste.github.branch": "main",              // 目标分支
+  "gitpaste.github.path": "images",              // 仓库内存放图片的文件夹路径
+  "gitpaste.github.publicUrl": "",               // 自定义公开访问域名（留空使用官方raw地址）
+  "gitpaste.fileNameFormat": "${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}", // 上传文件名格式
+  "gitpaste.maxFileSizeMb": 20,                  // 最大上传文件大小，单位MB
+  "gitpaste.uploadOnPaste": true                 // 粘贴图片时自动开启上传
+}
+```
+
+GitPaste 默认使用 GitHub 返回的原始下载链接 `https://raw.githubusercontent.com/...`。仅当需要自定义链接模板时，才设置 `gitpaste.github.publicUrl`。
+使用 `gitpaste.outputFormat` 可以自定义插入的 Markdown 或 HTML 内容。
+
+访问任意外部 HTTP 链接会受到源服务器浏览器跨域（CORS）策略限制。工作区文件与粘贴的图片不受此限制。
+
 ## 与 PicGo, vs-picgo 的关系与区别
 
 GitPaste 是基于 MIT 许可证项目

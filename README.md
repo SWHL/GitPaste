@@ -47,7 +47,7 @@ Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads
 
 ## Settings
 
-```jsonc
+```json
 {
   "gitpaste.github.repository": "owner/images",
   "gitpaste.github.branch": "main",
