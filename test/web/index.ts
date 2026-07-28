@@ -7,7 +7,7 @@ import type { GitPasteService } from '../../src/service'
 import type { UploadedImage } from '../../src/types'
 
 export async function run(): Promise<void> {
-  const extension = vscode.extensions.getExtension('gitpaste.gitpaste')
+  const extension = vscode.extensions.getExtension('SWHL.gitpaste')
   assert(extension, 'GitPaste extension was not discovered')
   await waitFor(() => extension.isActive)
   assert(
