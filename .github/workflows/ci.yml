@@ -30,13 +30,20 @@ jobs:
       - name: Build VSIX
         run: npm run build
 
-      - name: Create GitHub Release
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "${{ github.ref_name }}"
-          gitpaste.vsix
-          --repo "${{ github.repository }}"
-          --verify-tag
-          --title "GitPaste ${{ github.ref_name }}"
-          --generate-notes
+          TAG_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if gh release view "$TAG_NAME" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" gitpaste.vsix \
+              --repo "$REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG_NAME" gitpaste.vsix \
+              --repo "$REPOSITORY" \
+              --verify-tag \
+              --title "GitPaste $TAG_NAME" \
+              --generate-notes
+          fi
