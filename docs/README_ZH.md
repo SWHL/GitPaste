@@ -2,6 +2,8 @@
   <img src="../assets/gitpaste-logo.svg" width="128" height="128" alt="GitPaste logo">
 </p>
 
+简体中文 ｜ [English](../README.md)
+
 # GitPaste
 
 GitPaste 可以把图片上传到 GitHub，并将公开链接插入当前编辑器。它采用 VS Code Web Extension 架构，同一个扩展可以运行于桌面 VS Code、GitHub Codespaces、`vscode.dev` 和 `github.dev`。
