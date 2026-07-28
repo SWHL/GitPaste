@@ -1,0 +1,15 @@
+out
+node_modules
+.vscode-test/
+.vscode-test-web/
+.test-dist/
+*.vsix
+.imgs
+.vscode
+yarn-error.log
+coverage
+.coveralls.yml
+.DS_Store
+dist
+tmp
+assets/test.md

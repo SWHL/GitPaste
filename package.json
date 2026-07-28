@@ -1,0 +1,188 @@
+{
+  "name": "gitpaste",
+  "displayName": "GitPaste",
+  "description": "Paste images into Markdown and upload them directly to GitHub. Works in VS Code for the Web and desktop.",
+  "version": "0.1.0",
+  "author": {
+    "name": "SWHL",
+    "email": "liekkaskono@163.com"
+  },
+  "publisher": "gitpaste",
+  "icon": "assets/gitpaste-logo.png",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.97.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "github",
+    "image",
+    "markdown",
+    "paste",
+    "upload",
+    "vscode.dev",
+    "web extension"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:markdown",
+    "onLanguage:mdx",
+    "onCommand:gitpaste.uploadImageFromClipboard",
+    "onCommand:gitpaste.uploadImageFromExplorer",
+    "onCommand:gitpaste.uploadImageFromInputBox",
+    "onCommand:gitpaste.configure",
+    "onCommand:gitpaste.setToken",
+    "onCommand:gitpaste.clearToken"
+  ],
+  "browser": "./dist/web/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitpaste.uploadImageFromClipboard",
+        "title": "Upload Image from Clipboard",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.uploadImageFromExplorer",
+        "title": "Upload Images from Explorer",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.uploadImageFromInputBox",
+        "title": "Upload Image from Path or URL",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.configure",
+        "title": "Configure GitHub Repository",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.setToken",
+        "title": "Set Personal Access Token",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.clearToken",
+        "title": "Clear Personal Access Token",
+        "category": "GitPaste"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gitpaste.uploadImageFromClipboard",
+        "key": "ctrl+alt+u",
+        "mac": "cmd+alt+u",
+        "when": "editorTextFocus && !isWeb"
+      },
+      {
+        "command": "gitpaste.uploadImageFromExplorer",
+        "key": "ctrl+alt+e",
+        "mac": "cmd+alt+e",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "gitpaste.uploadImageFromInputBox",
+        "key": "ctrl+alt+o",
+        "mac": "cmd+alt+o",
+        "when": "editorTextFocus"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "gitpaste.uploadImageFromExplorer",
+          "when": "editorLangId == markdown || editorLangId == mdx",
+          "group": "9_cutcopypaste@5"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "GitPaste",
+      "properties": {
+        "gitpaste.github.repository": {
+          "type": "string",
+          "default": "",
+          "pattern": "^[^/\\s]+/[^/\\s]+$|^$",
+          "markdownDescription": "GitHub repository in `owner/repository` format."
+        },
+        "gitpaste.github.branch": {
+          "type": "string",
+          "default": "main",
+          "description": "Branch where images are committed."
+        },
+        "gitpaste.github.path": {
+          "type": "string",
+          "default": "images",
+          "description": "Directory inside the GitHub repository."
+        },
+        "gitpaste.github.authenticationMethod": {
+          "type": "string",
+          "enum": [
+            "github",
+            "pat"
+          ],
+          "default": "github",
+          "description": "Authentication method used for GitHub uploads. This setting does not contain the credential."
+        },
+        "gitpaste.github.publicUrl": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional public URL template. Available variables: `${owner}`, `${repository}`, `${branch}`, `${path}`. Leave empty (the default) to use GitHub's raw URL."
+        },
+        "gitpaste.github.commitMessage": {
+          "type": "string",
+          "default": "Upload ${uploadedName} with GitPaste",
+          "markdownDescription": "Commit message template. Available variable: `${uploadedName}`."
+        },
+        "gitpaste.fileNameFormat": {
+          "type": "string",
+          "default": "${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}",
+          "markdownDescription": "Uploaded filename template. Available variables: `${name}`, `${extName}`, `${timestamp}`, `${random}`, `${yyyy}`, `${MM}`, `${dd}`, `${HH}`, `${mm}`, `${ss}`, `${document}`."
+        },
+        "gitpaste.outputFormat": {
+          "type": "string",
+          "default": "![${uploadedName}](${url})",
+          "markdownDescription": "Inserted text template. Available variables: `${uploadedName}`, `${originalName}`, `${url}`."
+        },
+        "gitpaste.maxFileSizeMb": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum image size accepted by GitPaste, in megabytes."
+        },
+        "gitpaste.uploadOnPaste": {
+          "type": "boolean",
+          "default": true,
+          "description": "Upload pasted images in VS Code for the Web. Text and other clipboard content still use normal paste. This setting is ignored on desktop."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack --mode development",
+    "watch": "webpack --mode development --watch",
+    "package": "webpack --mode production",
+    "check": "tsc --noEmit",
+    "test": "npm run check && npm run test:unit",
+    "test:unit": "tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js",
+    "test:web": "npm run compile && vscode-test-web --browser chromium --headless --quality stable --commit 33fc5a94a3f99ebe7087e8fe79fbe1d37a251016 --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js .",
+    "build": "npm run package && vsce package --no-dependencies --no-yarn --allow-missing-repository -o gitpaste.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "1.97.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/test-web": "^0.0.70",
+    "@vscode/vsce": "^3.6.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^5.8.0",
+    "webpack": "^5.101.0",
+    "webpack-cli": "^6.0.1"
+  }
+}
