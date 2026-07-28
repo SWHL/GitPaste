@@ -1,0 +1,16 @@
+.github/**
+.test-dist/**
+.vscode/**
+.vscode-test/**
+.vscode-test-web/**
+src/**
+test/**
+coverage.json
+tsconfig*.json
+webpack.config.js
+assets/test.*
+assets/*.svg
+dist/web/test/**
+dist/**/*.map
+.gitignore
+*.vsix

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/gitpaste-logo.svg" width="128" height="128" alt="GitPaste logo">
+  <img src="./assets/gitpaste-logo.png" width="128" height="128" alt="GitPaste logo">
 </p>
 
 [简体中文](./docs/README_ZH.md) ｜ English

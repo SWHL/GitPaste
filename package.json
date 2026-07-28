@@ -8,6 +8,10 @@
     "email": "liekkaskono@163.com"
   },
   "publisher": "gitpaste",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SWHL/GitPaste.git"
+  },
   "icon": "assets/gitpaste-logo.png",
   "license": "MIT",
   "engines": {
@@ -172,7 +176,7 @@
     "test": "npm run check && npm run test:unit",
     "test:unit": "tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js",
     "test:web": "npm run compile && vscode-test-web --browser chromium --headless --quality stable --commit 33fc5a94a3f99ebe7087e8fe79fbe1d37a251016 --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js .",
-    "build": "npm run package && vsce package --no-dependencies --no-yarn --allow-missing-repository -o gitpaste.vsix"
+    "build": "npm run package && vsce package --no-dependencies --no-yarn -o gitpaste.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
