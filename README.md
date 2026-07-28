@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/gitpaste-logo.png" width="128" height="128" alt="GitPaste logo">
+  <img src="https://raw.githubusercontent.com/SWHL/GitPaste/refs/heads/main/assets/gitpaste-logo.png" width="128" height="128" alt="GitPaste logo">
 </p>
 
 [简体中文](./docs/README_ZH.md) ｜ English
@@ -9,6 +9,8 @@
 GitPaste uploads images to GitHub and inserts their public links into the active editor. It is a VS Code Web Extension, so the same extension runs in desktop VS Code, GitHub Codespaces, `vscode.dev`, and `github.dev`.
 
 The first release supports GitHub only. The upload layer is provider-based so more storage platforms can be added without changing the editor and paste workflow.
+
+> **Credential security:** vs-picgo's GitHub uploader requires the token to be written in plaintext to its configuration file. GitPaste does not write GitHub tokens to extension settings or `settings.json`. Use VS Code's built-in GitHub sign-in without managing a PAT, or provide a PAT that GitPaste stores in VS Code `SecretStorage`.
 
 ## Features
 
@@ -26,7 +28,7 @@ The first release supports GitHub only. The upload layer is provider-based so mo
 3. Sign in with GitHub, or provide a fine-grained token with **Contents: Read and write** access to that repository.
 4. Copy an image and open a Markdown or MDX file. In VS Code for the Web, paste with `Ctrl+V` or `Cmd+V`. On desktop, use `Ctrl+Alt+U` or `Cmd+Alt+U`.
 
-Personal access tokens are stored in VS Code `SecretStorage`, not in `settings.json`.
+Personal access tokens are stored in VS Code `SecretStorage`, not as plaintext configuration in `settings.json`.
 For a fine-grained PAT, its **Resource owner** must own the target repository and its **Repository access** must include that repository. Organization repositories may also require administrator approval or SSO authorization.
 After PAT authentication is selected, GitPaste asks for the PAT again if SecretStorage is unavailable instead of silently switching to VS Code's GitHub session.
 
@@ -79,6 +81,13 @@ GitPaste does not load PicGo plugins or PicGo/vs-picgo configuration. It uses
 `gitpaste.*` settings, stores credentials in VS Code `SecretStorage`, and uploads
 directly through the GitHub API. Existing PicGo or vs-picgo settings must be
 configured again using the corresponding GitPaste settings.
+
+The credential model is an intentional difference. The vs-picgo GitHub uploader
+requires a token in its configuration file, which leaves the token as plaintext
+configuration. GitPaste keeps tokens out of `gitpaste.*` settings: built-in GitHub
+sign-in delegates authentication to VS Code, while PAT authentication stores the
+secret in `SecretStorage` and only keeps the selected authentication method in
+`settings.json`.
 
 ## Development
 
