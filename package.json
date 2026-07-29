@@ -152,6 +152,11 @@
           "default": "![${uploadedName}](${url})",
           "markdownDescription": "Inserted text template. Available variables: `${uploadedName}`, `${originalName}`, `${url}`."
         },
+        "gitpaste.includeImageName": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Include the uploaded image name in the `${uploadedName}` variable. Disable this to produce `![](${url})` with the default output format."
+        },
         "gitpaste.maxFileSizeMb": {
           "type": "number",
           "default": 20,

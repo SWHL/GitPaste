@@ -36,3 +36,16 @@ test('formats Markdown output', () => {
     '![diagram](https://example/image.png)'
   )
 })
+
+test('formats Markdown output without an image name', () => {
+  assert.equal(
+    formatOutput(
+      '![${uploadedName}](${url})',
+      'uploaded',
+      'diagram',
+      'https://example/image.png',
+      false
+    ),
+    '![](https://example/image.png)'
+  )
+})

@@ -37,6 +37,7 @@ export interface GitPasteConfig {
   readonly commitMessage: string
   readonly fileNameFormat: string
   readonly outputFormat: string
+  readonly includeImageName: boolean
   readonly maxFileSizeMb: number
 }
 

@@ -38,7 +38,12 @@ export function formatOutput(
   template: string,
   uploadedName: string,
   originalName: string,
-  url: string
+  url: string,
+  includeImageName = true
 ): string {
-  return interpolate(template, { uploadedName, originalName, url })
+  return interpolate(template, {
+    uploadedName: includeImageName ? uploadedName : '',
+    originalName,
+    url
+  })
 }

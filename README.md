@@ -54,6 +54,7 @@ Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads
   "gitpaste.github.path": "images",
   "gitpaste.github.publicUrl": "",
   "gitpaste.fileNameFormat": "${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}",
+  "gitpaste.includeImageName": true,
   "gitpaste.maxFileSizeMb": 20,
   "gitpaste.uploadOnPaste": true
 }
@@ -61,6 +62,7 @@ Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads
 
 GitPaste uses the raw `https://raw.githubusercontent.com/...` download URL returned by GitHub by default. Set `gitpaste.github.publicUrl` only when a custom URL template is required.
 Use `gitpaste.outputFormat` to customize the inserted Markdown or HTML.
+Set `gitpaste.includeImageName` to `false` to insert `![](${url})` instead of `![${uploadedName}](${url})` with the default output format.
 
 Downloading arbitrary HTTP URLs is subject to the source server's browser CORS policy. Workspace files and pasted images do not have this limitation.
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+- Added the `gitpaste.includeImageName` setting to control whether generated Markdown image links include the uploaded filename as alt text. It defaults to `true` to preserve existing output; set it to `false` to generate `![](${url})`.
+
 ## 0.1.0
 
 - Rebuilt the extension as GitPaste with a browser-compatible entry point.

@@ -99,7 +99,8 @@ export class GitPasteService {
               config.outputFormat,
               uploadedName,
               nameWithoutExtension(image.name),
-              url
+              url,
+              config.includeImageName
             )
           })
           this.output.appendLine(`Uploaded ${image.name}: ${url}`)
@@ -201,6 +202,7 @@ export class GitPasteService {
         'outputFormat',
         '![${uploadedName}](${url})'
       ),
+      includeImageName: settings.get<boolean>('includeImageName', true),
       maxFileSizeMb: settings.get<number>('maxFileSizeMb', 20)
     }
   }
