@@ -105,6 +105,14 @@ export function nameWithoutExtension(fileName: string): string {
   return splitFileName(fileName).name
 }
 
+export function appendFileNameSuffix(path: string, suffix: string): string {
+  const slashIndex = path.lastIndexOf('/')
+  const directory = slashIndex >= 0 ? path.slice(0, slashIndex + 1) : ''
+  const fileName = slashIndex >= 0 ? path.slice(slashIndex + 1) : path
+  const { name, extName } = splitFileName(fileName)
+  return `${directory}${name}${suffix}${extName}`
+}
+
 function pad(value: number): string {
   return String(value).padStart(2, '0')
 }

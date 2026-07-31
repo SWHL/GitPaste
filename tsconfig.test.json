@@ -8,6 +8,10 @@
   },
   "include": [
     "src/naming.ts",
+    "src/markdown-image.ts",
+    "src/config-validation.ts",
+    "src/upload-policy.ts",
+    "src/providers/github.ts",
     "src/public-url.ts",
     "src/types.ts",
     "test/*.test.ts"

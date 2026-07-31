@@ -2,7 +2,7 @@
   "name": "gitpaste",
   "displayName": "GitPaste",
   "description": "Paste images into Markdown and upload them directly to GitHub. Works in VS Code for the Web and desktop.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "author": {
     "name": "SWHL",
     "email": "liekkaskono@163.com"
@@ -36,6 +36,8 @@
     "onCommand:gitpaste.uploadImageFromClipboard",
     "onCommand:gitpaste.uploadImageFromExplorer",
     "onCommand:gitpaste.uploadImageFromInputBox",
+    "onCommand:gitpaste.replaceImageAtCursor",
+    "onCommand:gitpaste.checkConfiguration",
     "onCommand:gitpaste.configure",
     "onCommand:gitpaste.setToken",
     "onCommand:gitpaste.clearToken"
@@ -56,6 +58,16 @@
       {
         "command": "gitpaste.uploadImageFromInputBox",
         "title": "Upload Image from Path or URL",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.replaceImageAtCursor",
+        "title": "Replace Image at Cursor",
+        "category": "GitPaste"
+      },
+      {
+        "command": "gitpaste.checkConfiguration",
+        "title": "Check Configuration",
         "category": "GitPaste"
       },
       {
@@ -100,6 +112,11 @@
           "command": "gitpaste.uploadImageFromExplorer",
           "when": "editorLangId == markdown || editorLangId == mdx",
           "group": "9_cutcopypaste@5"
+        },
+        {
+          "command": "gitpaste.replaceImageAtCursor",
+          "when": "editorLangId == markdown || editorLangId == mdx",
+          "group": "9_cutcopypaste@6"
         }
       ]
     },
@@ -141,6 +158,21 @@
           "type": "string",
           "default": "Upload ${uploadedName} with GitPaste",
           "markdownDescription": "Commit message template. Available variable: `${uploadedName}`."
+        },
+        "gitpaste.github.conflictStrategy": {
+          "type": "string",
+          "enum": [
+            "rename",
+            "overwrite",
+            "prompt"
+          ],
+          "enumDescriptions": [
+            "Keep the existing file and add a numeric suffix to the new filename.",
+            "Replace the existing remote file.",
+            "Ask whether to rename or overwrite when a conflict occurs."
+          ],
+          "default": "rename",
+          "description": "How to handle an uploaded filename that already exists."
         },
         "gitpaste.fileNameFormat": {
           "type": "string",

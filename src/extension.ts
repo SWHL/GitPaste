@@ -10,6 +10,7 @@ import {
   imageFileFilters,
   isSupportedImageName
 } from './service'
+import { findMarkdownImageAtOffset } from './markdown-image'
 import type { ImageInput, UploadedImage } from './types'
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -37,6 +38,20 @@ export function activate(context: vscode.ExtensionContext): void {
       'gitpaste.uploadImageFromInputBox',
       async () => runCommand(() => uploadFromInput(service))
     ),
+    vscode.commands.registerCommand(
+      'gitpaste.replaceImageAtCursor',
+      async () => runCommand(() => replaceImageAtCursor(service))
+    ),
+    vscode.commands.registerCommand(
+      'gitpaste.checkConfiguration',
+      async () =>
+        runCommand(async () => {
+          await service.verifyCurrentConfiguration()
+          await vscode.window.showInformationMessage(
+            'GitPaste: repository write access and branch configuration verified.'
+          )
+        })
+    ),
     vscode.commands.registerCommand('gitpaste.configure', async () =>
       runCommand(() => configure(service, credentials))
     ),
@@ -46,7 +61,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (token) {
           await service.verifyConfiguration(token)
           await vscode.window.showInformationMessage(
-            'GitPaste: token saved and repository read access verified. Uploads also require Contents: Read and write.'
+            'GitPaste: token saved; repository write access and branch verified.'
           )
         }
       })
@@ -123,12 +138,88 @@ async function uploadAndInsert(
     documentName,
     new vscode.CancellationTokenSource().token
   )
-  await insertUploaded(editor, uploaded)
+  await insertUploadedWithCleanup(service, editor, uploaded)
   await vscode.window.showInformationMessage(
     `GitPaste: uploaded ${uploaded.length} image${
       uploaded.length === 1 ? '' : 's'
     }.`
   )
+}
+
+async function replaceImageAtCursor(service: GitPasteService): Promise<void> {
+  const editor = vscode.window.activeTextEditor
+  if (!editor) throw new Error('Open a Markdown editor before replacing an image.')
+  const document = editor.document
+  const originalVersion = document.version
+  const image = findMarkdownImageAtOffset(
+    document.getText(),
+    document.offsetAt(editor.selection.active)
+  )
+  if (!image) {
+    throw new Error('Place the cursor inside a Markdown image before replacing it.')
+  }
+
+  const uris = await vscode.window.showOpenDialog({
+    title: 'GitPaste: select replacement image',
+    filters: imageFileFilters(),
+    canSelectMany: false,
+    canSelectFiles: true,
+    canSelectFolders: false
+  })
+  if (!uris?.length) return
+  const input = await service.readUri(uris[0])
+  const uploaded = await service.uploadImages(
+    [input],
+    document.uri.path.split('/').pop() || 'document',
+    new vscode.CancellationTokenSource().token
+  )
+  if (
+    vscode.window.activeTextEditor?.document !== document ||
+    document.version !== originalVersion
+  ) {
+    await offerInsertionCleanup(service, uploaded)
+    throw new Error('The document changed while the replacement image was uploading.')
+  }
+  const applied = await editor.edit((builder) => {
+    builder.replace(
+      new vscode.Range(
+        document.positionAt(image.start),
+        document.positionAt(image.end)
+      ),
+      uploaded[0].output
+    )
+  })
+  if (!applied) {
+    await offerInsertionCleanup(service, uploaded)
+    throw new Error('The Markdown image could not be replaced in the editor.')
+  }
+
+  const oldRemotePath = await service.remotePathForUrl(image.url)
+  if (oldRemotePath && oldRemotePath !== uploaded[0].remotePath) {
+    const choice = await vscode.window.showWarningMessage(
+      `GitPaste: image replaced. Delete old remote image ${oldRemotePath}?`,
+      {
+        modal: true,
+        detail:
+          'This creates a deletion commit and may break references to the same image in other documents.'
+      },
+      'Delete old image'
+    )
+    if (choice === 'Delete old image') {
+      try {
+        await service.deleteRemotePath(oldRemotePath)
+        await vscode.window.showInformationMessage(
+          'GitPaste: old remote image deleted.'
+        )
+      } catch (error) {
+        await vscode.window.showErrorMessage(
+          `GitPaste: the image was replaced, but the old remote image could not be deleted: ${errorMessage(error)}`
+        )
+      }
+    }
+  } else {
+    await vscode.window.showInformationMessage('GitPaste: image replaced.')
+  }
 }
 
 async function insertUploaded(
@@ -141,6 +232,40 @@ async function insertUploaded(
   })
   if (!applied) {
     throw new Error('The Markdown link could not be inserted into the editor.')
+  }
+}
+
+async function insertUploadedWithCleanup(
+  service: GitPasteService,
+  editor: vscode.TextEditor,
+  uploaded: readonly UploadedImage[]
+): Promise<void> {
+  try {
+    await insertUploaded(editor, uploaded)
+  } catch (error) {
+    await offerInsertionCleanup(service, uploaded)
+    throw error
+  }
+}
+
+async function offerInsertionCleanup(
+  service: GitPasteService,
+  uploaded: readonly UploadedImage[]
+): Promise<void> {
+  if (!uploaded.some((image) => image.created !== false)) {
+    await vscode.window.showWarningMessage(
+      'GitPaste overwrote the remote image, but could not update the editor. The previous remote content cannot be automatically restored.'
+    )
+    return
+  }
+  const choice = await vscode.window.showWarningMessage(
+    'GitPaste uploaded the image, but could not update the editor.',
+    { modal: true },
+    'Delete uploaded files',
+    'Keep files'
+  )
+  if (choice === 'Delete uploaded files') {
+    await service.deleteUploadedImages(uploaded)
   }
 }
 
@@ -158,6 +283,8 @@ async function configure(
   credentials: Credentials
 ): Promise<void> {
   const settings = vscode.workspace.getConfiguration('gitpaste')
+  const configurationTarget = await pickConfigurationTarget()
+  if (configurationTarget === undefined) return
   const current = settings.get<string>('github.repository', '')
   const repository = await vscode.window.showInputBox({
     title: 'GitPaste: GitHub repository',
@@ -192,14 +319,14 @@ async function configure(
     settings.update(
       'github.repository',
       repository.trim(),
-      vscode.ConfigurationTarget.Global
+      configurationTarget
     ),
     settings.update(
       'github.branch',
       branch.trim(),
-      vscode.ConfigurationTarget.Global
+      configurationTarget
     ),
-    settings.update('github.path', path.trim(), vscode.ConfigurationTarget.Global)
+    settings.update('github.path', path.trim(), configurationTarget)
   ])
 
   const authentication = await vscode.window.showQuickPick(
@@ -225,8 +352,32 @@ async function configure(
   if (!token) return
   await service.verifyConfiguration(token)
   await vscode.window.showInformationMessage(
-    `GitPaste: connected to ${repository.trim()}@${branch.trim()}. Repository read access verified; uploads require Contents: Read and write.`
+    `GitPaste: connected to ${repository.trim()}@${branch.trim()}. Write access and branch verified.`
   )
+}
+
+async function pickConfigurationTarget(): Promise<
+  vscode.ConfigurationTarget | undefined
+> {
+  if (!vscode.workspace.workspaceFolders?.length) {
+    return vscode.ConfigurationTarget.Global
+  }
+  const choice = await vscode.window.showQuickPick(
+    [
+      {
+        label: 'Current workspace',
+        description: 'Use this image repository only in the current project',
+        target: vscode.ConfigurationTarget.Workspace
+      },
+      {
+        label: 'Global',
+        description: 'Use this image repository in every project',
+        target: vscode.ConfigurationTarget.Global
+      }
+    ],
+    { title: 'GitPaste: save repository configuration', ignoreFocusOut: true }
+  )
+  return choice?.target
 }
 
 async function runCommand(action: () => Promise<void>): Promise<void> {
@@ -238,4 +389,8 @@ async function runCommand(action: () => Promise<void>): Promise<void> {
       `GitPaste: ${error instanceof Error ? error.message : String(error)}`
     )
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  appendFileNameSuffix,
   encodeRepoPath,
   formatUploadFileName,
   interpolate,
@@ -22,6 +23,13 @@ test('formats a deterministic upload filename', () => {
   assert.equal(
     actual,
     '20260727-notes.md-Screen-Shot-a1b2c3d4.png'
+  )
+})
+
+test('appends a suffix before the extension', () => {
+  assert.equal(
+    appendFileNameSuffix('images/photo.final.png', '-2'),
+    'images/photo.final-2.png'
   )
 })
 

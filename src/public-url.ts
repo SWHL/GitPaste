@@ -47,3 +47,42 @@ export function formatOutput(
     url
   })
 }
+
+export function remotePathFromPublicUrl(
+  template: string,
+  repository: string,
+  branch: string,
+  publicUrl: string
+): string | undefined {
+  const marker = '__GITPASTE_REMOTE_PATH__'
+  let rendered: string
+  if (template.trim()) {
+    if (!template.includes('${path}')) return undefined
+    rendered = buildPublicUrl(template, repository, branch, marker)
+  } else {
+    const repo = parseRepository(repository)
+    rendered = `https://raw.githubusercontent.com/${encodeURIComponent(
+      repo.owner
+    )}/${encodeURIComponent(repo.repository)}/${encodeRepoPath(branch)}/${marker}`
+  }
+
+  const markerIndex = rendered.indexOf(marker)
+  const prefix = rendered.slice(0, markerIndex)
+  const suffix = rendered.slice(markerIndex + marker.length)
+  if (!publicUrl.startsWith(prefix) || !publicUrl.endsWith(suffix)) {
+    return undefined
+  }
+  const encodedPath = publicUrl.slice(
+    prefix.length,
+    suffix ? -suffix.length : undefined
+  )
+  if (!encodedPath) return undefined
+  try {
+    return encodedPath
+      .split('/')
+      .map((segment) => decodeURIComponent(segment))
+      .join('/')
+  } catch {
+    return undefined
+  }
+}

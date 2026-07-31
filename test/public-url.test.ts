@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildPublicUrl, formatOutput, parseRepository } from '../src/public-url'
+import {
+  buildPublicUrl,
+  formatOutput,
+  parseRepository,
+  remotePathFromPublicUrl
+} from '../src/public-url'
 
 test('parses owner/repository values', () => {
   assert.deepEqual(parseRepository('octocat/images'), {
@@ -47,5 +52,46 @@ test('formats Markdown output without an image name', () => {
       false
     ),
     '![](https://example/image.png)'
+  )
+})
+
+test('maps default and custom public URLs back to repository paths', () => {
+  assert.equal(
+    remotePathFromPublicUrl(
+      '',
+      'octocat/images',
+      'main',
+      'https://raw.githubusercontent.com/octocat/images/main/uploads/%E8%AE%BE%E8%AE%A1.png'
+    ),
+    'uploads/设计.png'
+  )
+  assert.equal(
+    remotePathFromPublicUrl(
+      'https://cdn.example/${owner}/${path}?raw=1',
+      'octocat/images',
+      'main',
+      'https://cdn.example/octocat/uploads/image.png?raw=1'
+    ),
+    'uploads/image.png'
+  )
+})
+
+test('does not map unrelated or non-reversible public URLs', () => {
+  assert.equal(
+    remotePathFromPublicUrl('', 'octocat/images', 'main', 'https://example.com/image.png'),
+    undefined
+  )
+  assert.equal(
+    remotePathFromPublicUrl('https://cdn.example/static', 'octocat/images', 'main', 'https://cdn.example/static'),
+    undefined
+  )
+  assert.equal(
+    remotePathFromPublicUrl(
+      '',
+      'octocat/images',
+      'main',
+      'https://raw.githubusercontent.com/octocat/images/main/images/%E0%A4%A.png'
+    ),
+    undefined
   )
 })

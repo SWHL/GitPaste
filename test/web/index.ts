@@ -30,6 +30,8 @@ export async function run(): Promise<void> {
     'gitpaste.uploadImageFromClipboard',
     'gitpaste.uploadImageFromExplorer',
     'gitpaste.uploadImageFromInputBox',
+    'gitpaste.replaceImageAtCursor',
+    'gitpaste.checkConfiguration',
     'gitpaste.configure',
     'gitpaste.setToken',
     'gitpaste.clearToken'
@@ -45,6 +47,14 @@ async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {
   assert(
     settings.get<boolean>('uploadOnPaste') === true,
     'Image paste uploads were not enabled by default in the web extension host'
+  )
+  assert(
+    settings.get<string>('github.conflictStrategy') === 'rename',
+    'The safe rename conflict strategy was not enabled by default'
+  )
+  assert(
+    settings.get<boolean>('includeImageName') === true,
+    'The existing image alt-text behavior changed unexpectedly'
   )
   assert(
     vscode.env.uiKind === vscode.UIKind.Web,

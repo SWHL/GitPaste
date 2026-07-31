@@ -1,7 +1,9 @@
 import { encodeRepoPath, interpolate } from '../naming'
 import { parseRepository } from '../public-url'
 import type {
+  DeleteRequest,
   GitHubTarget,
+  ProviderFile,
   ProviderUploadResult,
   UploadProvider,
   UploadRequest
@@ -14,6 +16,16 @@ interface GitHubContentResponse {
     download_url?: string
     path?: string
     sha?: string
+  }
+  download_url?: string
+  path?: string
+  sha?: string
+  message?: string
+}
+
+interface GitHubRepositoryResponse {
+  permissions?: {
+    push?: boolean
   }
   message?: string
 }
@@ -40,7 +52,8 @@ export class GitHubProvider implements UploadProvider<GitHubTarget> {
           uploadedName: request.fileName
         }),
         content: toBase64(request.data),
-        branch: request.target.branch
+        branch: request.target.branch,
+        ...(request.existingSha ? { sha: request.existingSha } : {})
       })
     })
     const payload = (await response.json()) as GitHubContentResponse
@@ -68,8 +81,80 @@ export class GitHubProvider implements UploadProvider<GitHubTarget> {
     }
   }
 
+  async getFile(
+    target: GitHubTarget,
+    remotePath: string
+  ): Promise<ProviderFile | undefined> {
+    const response = await fetch(
+      `${this.contentEndpoint(target, remotePath)}?ref=${encodeURIComponent(
+        target.branch
+      )}`,
+      { headers: this.headers }
+    )
+    if (response.status === 404) return undefined
+    const payload = (await response.json()) as GitHubContentResponse
+    if (!response.ok) {
+      throw new Error(
+        `GitHub file lookup failed (${response.status}): ${
+          payload.message || response.statusText
+        }`
+      )
+    }
+    const sha = payload.sha || payload.content?.sha
+    if (!sha) {
+      throw new Error('GitHub did not return file metadata for this path.')
+    }
+    return {
+      remotePath: payload.path || payload.content?.path || remotePath,
+      sha
+    }
+  }
+
+  async delete(request: DeleteRequest<GitHubTarget>): Promise<void> {
+    const response = await fetch(
+      this.contentEndpoint(request.target, request.remotePath),
+      {
+        method: 'DELETE',
+        headers: this.headers,
+        body: JSON.stringify({
+          message: request.commitMessage,
+          sha: request.sha,
+          branch: request.target.branch
+        })
+      }
+    )
+    if (!response.ok) {
+      const payload = (await response.json()) as GitHubContentResponse
+      throw new Error(
+        `GitHub delete failed (${response.status}): ${
+          payload.message || response.statusText
+        }`
+      )
+    }
+  }
+
   async verify(target: GitHubTarget): Promise<void> {
     const repo = parseRepository(target.repository)
+    const repositoryEndpoint = `https://api.github.com/repos/${encodeURIComponent(
+      repo.owner
+    )}/${encodeURIComponent(repo.repository)}`
+    const repositoryResponse = await fetch(repositoryEndpoint, {
+      headers: this.headers
+    })
+    const repositoryPayload =
+      (await repositoryResponse.json()) as GitHubRepositoryResponse
+    if (!repositoryResponse.ok) {
+      throw new Error(
+        `Cannot access ${target.repository} (${repositoryResponse.status}): ${
+          repositoryPayload.message || repositoryResponse.statusText
+        }`
+      )
+    }
+    if (repositoryPayload.permissions?.push !== true) {
+      throw new Error(
+        `The current GitHub credential does not have write access to ${target.repository}.`
+      )
+    }
     const endpoint = `https://api.github.com/repos/${encodeURIComponent(
       repo.owner
     )}/${encodeURIComponent(repo.repository)}/branches/${encodeURIComponent(
@@ -84,6 +169,15 @@ export class GitHubProvider implements UploadProvider<GitHubTarget> {
         }`
       )
     }
+  }
+
+  private contentEndpoint(target: GitHubTarget, remotePath: string): string {
+    const repo = parseRepository(target.repository)
+    return `https://api.github.com/repos/${encodeURIComponent(
+      repo.owner
+    )}/${encodeURIComponent(repo.repository)}/contents/${encodeRepoPath(
+      remotePath
+    )}`
   }
 
   private get headers(): Record<string, string> {
