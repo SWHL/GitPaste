@@ -2,7 +2,7 @@
   "name": "gitpaste",
   "displayName": "GitPaste",
   "description": "Paste images into Markdown and upload them directly to GitHub. Works in VS Code for the Web and desktop.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "SWHL",
     "email": "liekkaskono@163.com"

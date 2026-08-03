@@ -17,7 +17,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('GitPaste')
   const credentials = new Credentials(context.secrets)
   const service = new GitPasteService(credentials, output)
-  const pasteProvider = new GitPastePasteProvider(service)
+  const pasteProvider = new GitPastePasteProvider(service, {
+    applied: (oldUrl, uploaded) =>
+      runCommand(() => finishImageReplacement(service, oldUrl, uploaded)),
+    notApplied: (uploaded) =>
+      runCommand(() => offerInsertionCleanup(service, uploaded))
+  })
 
   context.subscriptions.push(
     output,
@@ -40,7 +45,8 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand(
       'gitpaste.replaceImageAtCursor',
-      async () => runCommand(() => replaceImageAtCursor(service))
+      async () =>
+        runCommand(() => replaceImageAtCursor(service, pasteProvider))
     ),
     vscode.commands.registerCommand(
       'gitpaste.checkConfiguration',
@@ -146,7 +152,10 @@ async function uploadAndInsert(
   )
 }
 
-async function replaceImageAtCursor(service: GitPasteService): Promise<void> {
+async function replaceImageAtCursor(
+  service: GitPasteService,
+  pasteProvider: GitPastePasteProvider
+): Promise<void> {
   const editor = vscode.window.activeTextEditor
   if (!editor) throw new Error('Open a Markdown editor before replacing an image.')
   const document = editor.document
@@ -157,6 +166,14 @@ async function replaceImageAtCursor(service: GitPasteService): Promise<void> {
   )
   if (!image) {
     throw new Error('Place the cursor inside a Markdown image before replacing it.')
+  }
+
+  if (vscode.env.uiKind === vscode.UIKind.Web) {
+    pasteProvider.prepareImageReplacement(document, image)
+    await vscode.window.showInformationMessage(
+      'GitPaste: paste one image now to replace the image at the cursor.'
+    )
+    return
   }
 
   const uris = await vscode.window.showOpenDialog({
@@ -194,8 +211,16 @@ async function replaceImageAtCursor(service: GitPasteService): Promise<void> {
     throw new Error('The Markdown image could not be replaced in the editor.')
   }
 
-  const oldRemotePath = await service.remotePathForUrl(image.url)
-  if (oldRemotePath && oldRemotePath !== uploaded[0].remotePath) {
+  await finishImageReplacement(service, image.url, uploaded[0])
+}
+
+async function finishImageReplacement(
+  service: GitPasteService,
+  oldUrl: string,
+  uploaded: UploadedImage
+): Promise<void> {
+  const oldRemotePath = await service.remotePathForUrl(oldUrl)
+  if (oldRemotePath && oldRemotePath !== uploaded.remotePath) {
     const choice = await vscode.window.showWarningMessage(
       `GitPaste: image replaced. Delete old remote image ${oldRemotePath}?`,
       {

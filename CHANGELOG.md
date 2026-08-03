@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+### Fixed
+
+- **Replace Image at Cursor** now works in VS Code for the Web by accepting the next pasted image as the replacement, while desktop continues to use the file picker.
+- Pending Web replacement requests now expire after 60 seconds and are canceled when the target changes.
+
 ## 0.3.0
 
 ### Added

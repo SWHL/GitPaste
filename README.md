@@ -43,7 +43,7 @@ After PAT authentication is selected, GitPaste asks for the PAT again if SecretS
 | Paste and Upload Image (Web) | `Ctrl+V` | `Cmd+V` |
 | Upload Images from Explorer | `Ctrl+Alt+E` | `Cmd+Alt+E` |
 | Upload Image from Path or URL | `Ctrl+Alt+O` | `Cmd+Alt+O` |
-| Replace Image at Cursor | Command Palette or editor context menu | Command Palette or editor context menu |
+| Replace Image at Cursor | Command Palette or editor context menu; in Web, then paste the replacement image | Command Palette or editor context menu; in Web, then paste the replacement image |
 | Check Configuration | Command Palette | Command Palette |
 | Configure GitHub Repository | Command Palette | Command Palette |
 | Set/Clear Personal Access Token | Command Palette | Command Palette |
@@ -85,12 +85,14 @@ Cleanup never deletes a file that was overwritten, because GitPaste does not ret
 
 Place the cursor anywhere inside an inline Markdown image such as `![old](https://example.com/old.png)`, then run **GitPaste: Replace Image at Cursor** from the Command Palette or editor context menu.
 
-1. Select one replacement image.
+1. On desktop, select one replacement image. In VS Code for the Web, paste one image after running the command.
 2. GitPaste uploads it using the normal filename and conflict settings.
 3. GitPaste replaces the complete Markdown image at the cursor with the new generated output.
 4. If the old URL can be mapped unambiguously to the configured repository, branch, and image directory, GitPaste offers to delete the old remote file.
 
 Reference-style Markdown images such as `![old][image-id]` are not replaced. Old-file deletion is not offered for unrelated URLs or custom URL templates that cannot be reversed. If overwrite selects the same remote path, GitPaste keeps that path and does not offer to delete it.
+
+In VS Code for the Web, the pending replacement expires after 60 seconds. It is also canceled if the target document or cursor position changes before the image is pasted.
 
 Deleting a GitHub file creates a deletion commit on the configured branch. It does not erase the file from Git history, and a CDN may continue serving a cached response for some time. Deletion can also break other documents that reference the same URL, so GitPaste requires explicit confirmation.
 

@@ -3,6 +3,7 @@ import {
   GitPastePasteProvider,
   pasteDocumentSelector
 } from '../../src/paste-provider'
+import { findMarkdownImageAtOffset } from '../../src/markdown-image'
 import type { GitPasteService } from '../../src/service'
 import type { UploadedImage } from '../../src/types'
 
@@ -40,6 +41,8 @@ export async function run(): Promise<void> {
   }
 
   await assertPasteEditContainsUploadedMarkdown()
+  await assertPasteEditReplacesMarkdownImage()
+  await assertExpiredReplacementFallsBackToNormalPaste()
 }
 
 async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {
@@ -117,6 +120,107 @@ async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {
   )
   assert(!textEdits, 'GitPaste intercepted a text paste')
   assert(uploadCalls === 1, 'GitPaste attempted to upload non-image clipboard data')
+}
+
+async function assertPasteEditReplacesMarkdownImage(): Promise<void> {
+  const original = 'Before ![old](https://example.com/old.png) after'
+  const expected = '![new](https://example.com/new.png)'
+  const uploaded: UploadedImage = {
+    originalName: 'new',
+    uploadedName: 'new',
+    remotePath: 'images/new.png',
+    url: 'https://example.com/new.png',
+    output: expected
+  }
+  const applied: Array<{ oldUrl: string; uploaded: UploadedImage }> = []
+  const service = {
+    uploadImages: async () => [uploaded]
+  } as unknown as GitPasteService
+  const provider = new GitPastePasteProvider(service, {
+    applied: async (oldUrl, completedUpload) => {
+      applied.push({ oldUrl, uploaded: completedUpload })
+    },
+    notApplied: async () => undefined
+  })
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: original
+  })
+  const image = findMarkdownImageAtOffset(original, original.indexOf('old.png'))
+  assert(image, 'The replacement test image could not be parsed')
+  provider.prepareImageReplacement(document, image)
+
+  const cursor = document.positionAt(original.indexOf('old.png'))
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(cursor, cursor)],
+    createImageTransfer('new.png'),
+    {
+      only: undefined,
+      triggerKind: vscode.DocumentPasteTriggerKind.Automatic
+    },
+    new vscode.CancellationTokenSource().token
+  )
+
+  assert(edits?.length === 1, 'GitPaste did not return a replacement paste edit')
+  assert(edits[0].insertText === '', 'Replacement unexpectedly inserted at the cursor')
+  assert(edits[0].additionalEdit, 'Replacement did not include the Markdown edit')
+  assert(
+    await vscode.workspace.applyEdit(edits[0].additionalEdit),
+    'The replacement workspace edit could not be applied'
+  )
+  await waitFor(() => applied.length === 1)
+  assert(
+    document.getText() === `Before ${expected} after`,
+    'The complete Markdown image was not replaced'
+  )
+  assert(
+    applied[0].oldUrl === 'https://example.com/old.png',
+    'The replacement callback did not receive the old URL'
+  )
+  assert(applied[0].uploaded === uploaded, 'The replacement upload was lost')
+}
+
+async function assertExpiredReplacementFallsBackToNormalPaste(): Promise<void> {
+  const original = '![old](https://example.com/old.png)'
+  const uploaded: UploadedImage = {
+    originalName: 'new',
+    uploadedName: 'new',
+    remotePath: 'images/new.png',
+    url: 'https://example.com/new.png',
+    output: '![new](https://example.com/new.png)'
+  }
+  const service = {
+    uploadImages: async () => [uploaded]
+  } as unknown as GitPasteService
+  const provider = new GitPastePasteProvider(service, undefined, 5)
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: original
+  })
+  const image = findMarkdownImageAtOffset(original, original.indexOf('old.png'))
+  assert(image, 'The expiration test image could not be parsed')
+  provider.prepareImageReplacement(document, image)
+  await new Promise((resolve) => setTimeout(resolve, 20))
+
+  const cursor = document.positionAt(original.indexOf('old.png'))
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(cursor, cursor)],
+    createImageTransfer('new.png'),
+    {
+      only: undefined,
+      triggerKind: vscode.DocumentPasteTriggerKind.Automatic
+    },
+    new vscode.CancellationTokenSource().token
+  )
+
+  assert(edits?.length === 1, 'Normal paste did not resume after expiration')
+  assert(
+    edits[0].insertText === uploaded.output,
+    'An expired request still replaced the old Markdown image'
+  )
+  assert(!edits[0].additionalEdit, 'Expired replacement kept its additional edit')
 }
 
 function createImageTransfer(name: string): vscode.DataTransfer {
