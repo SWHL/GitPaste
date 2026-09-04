@@ -50,6 +50,8 @@ After PAT authentication is selected, GitPaste asks for the PAT again if SecretS
 
 Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads image clipboard data while text and other clipboard content continue to use normal paste. The GitPaste clipboard shortcut is desktop-only because browsers expose binary clipboard data only through a real paste event.
 
+Explorer and path/URL uploads keep the insertion target captured when the command starts. Moving the cursor or editing elsewhere in the same document does not redirect the result. Edits before the target move it with the surrounding text; changing text that overlaps the target cancels insertion and offers cleanup if the remote upload already completed.
+
 ## Repository Configuration Scope
 
 **Configure GitHub Repository** asks where to save the repository, branch, and image directory:
@@ -92,7 +94,7 @@ Place the cursor anywhere inside an inline Markdown image such as `![old](https:
 
 Reference-style Markdown images such as `![old][image-id]` are not replaced. Old-file deletion is not offered for unrelated URLs or custom URL templates that cannot be reversed. If overwrite selects the same remote path, GitPaste keeps that path and does not offer to delete it.
 
-In VS Code for the Web, the pending replacement expires after 60 seconds. It is also canceled if the target document or cursor position changes before the image is pasted.
+In VS Code for the Web, the pending replacement expires after 60 seconds. It is also canceled if the target document changes, the cursor moves outside the target image before paste, or the target image itself is edited. While waiting to paste, edits elsewhere in the document are tracked and do not cancel replacement.
 
 Deleting a GitHub file creates a deletion commit on the configured branch. It does not erase the file from Git history, and a CDN may continue serving a cached response for some time. Deletion can also break other documents that reference the same URL, so GitPaste requires explicit confirmation.
 

@@ -36,6 +36,8 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 需要复制图片本身，而不是图片地址。Web 版中，`Ctrl/Cmd+V` 遇到图片时会上传，遇到文字或其他内容时仍执行普通粘贴。由于浏览器只会通过真实粘贴事件提供图片二进制数据，GitPaste 的专用剪贴板快捷键仅用于桌面版。
 
+通过文件选择器或路径 /URL 上传时，GitPaste 会保留命令触发瞬间的插入目标。移动光标或编辑同一文档的其他位置不会改变插入目标；目标前方的编辑会带动目标位置同步移动，只有与目标范围重叠的编辑才会取消插入。如果远端上传已经完成，GitPaste 会提供清理选项。
+
 ## 仓库配置作用域
 
 运行 **GitPaste: Configure GitHub Repository** 时，需要选择仓库、分支和图片目录的保存范围：
@@ -51,9 +53,9 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 | 取值 | 行为 | 关键说明 |
 | --- | --- | --- |
-| `rename` | 查找第一个可用数字后缀，例如 `photo-2.png`、`photo-3.png`。 | 默认且最安全；保留已有文件。 |
-| `overwrite` | 读取 GitHub 当前文件的 SHA 后覆盖该文件。 | 远端路径和公开 URL 通常不变；GitPaste 无法自动恢复旧内容。 |
-| `prompt` | 每次冲突时询问使用重命名还是覆盖。 | 取消选择会停止当前操作。 |
+| `rename` | 查找第一个可用数字后缀，例如 `photo-2.png`、`photo-3.png`。| 默认且最安全；保留已有文件。|
+| `overwrite` | 读取 GitHub 当前文件的 SHA 后覆盖该文件。| 远端路径和公开 URL 通常不变；GitPaste 无法自动恢复旧内容。|
+| `prompt` | 每次冲突时询问使用重命名还是覆盖。| 取消选择会停止当前操作。|
 
 默认文件名模板包含 `${random}`，所以通常不会冲突；自定义模板移除随机值后，这项设置会更重要。
 
@@ -65,7 +67,7 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 - **Skip**：跳过当前图片，继续处理后续图片。
 - **Stop**：停止批次，并可清理本次操作此前新建的远端文件。
 
-清理不会删除被覆盖的文件，因为 GitPaste 没有保存覆盖前的内容。删除本次新建文件前，GitPaste 会重新读取远端 SHA；如果文件已被其他操作修改，则拒绝删除。通过文件选择器或路径/URL 上传时，如果远端上传成功但编辑器写入失败，也会提供清理选项。
+清理不会删除被覆盖的文件，因为 GitPaste 没有保存覆盖前的内容。删除本次新建文件前，GitPaste 会重新读取远端 SHA；如果文件已被其他操作修改，则拒绝删除。通过文件选择器或路径 /URL 上传时，如果远端上传成功但编辑器写入失败，也会提供清理选项。
 
 ## 替换图片
 
@@ -78,7 +80,7 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 引用式图片 `![old][image-id]` 暂不支持替换。无关 URL 或无法反向解析的自定义 URL 模板不会出现删除选项。如果覆盖时使用了同一远端路径，GitPaste 会保留该路径，也不会再次询问删除。
 
-在 VS Code Web 版中，等待粘贴的替换请求会在 60 秒后失效。如果粘贴前目标文档或光标位置发生变化，请求也会取消。
+在 VS Code Web 版中，等待粘贴的替换请求会在 60 秒后失效。如果目标文档发生变化、粘贴前光标移出目标图片，或目标图片本身被编辑，请求也会取消。在等待粘贴期间，文档其他位置的编辑会被追踪，不会取消替换。
 
 删除 GitHub 文件只会在当前分支创建一个删除 commit，并不会从 Git 历史中彻底抹除文件；CDN 也可能继续提供一段时间的缓存。删除还可能破坏其他文档对同一 URL 的引用，因此 GitPaste 会要求明确确认。
 
@@ -113,18 +115,18 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 | 设置 | 默认值 | 说明 |
 | --- | --- | --- |
-| `gitpaste.github.repository` | `""` | 必填的 `owner/repository` 目标仓库。不同项目使用不同仓库时应保存到工作区。 |
-| `gitpaste.github.branch` | `"main"` | 接收上传和删除 commit 的分支；支持包含 `/` 的分支名。 |
-| `gitpaste.github.path` | `"images"` | 仓库内图片目录；留空表示仓库根目录，禁止使用 `..` 路径段。 |
-| `gitpaste.github.authenticationMethod` | `"github"` | `github` 使用 VS Code 登录；`pat` 使用 `SecretStorage` 中的令牌。通常由配置流程设置。 |
-| `gitpaste.github.publicUrl` | `""` | 留空时使用 GitHub 返回的 Raw URL；自定义 HTTP(S) 模板必须包含 `${path}`。 |
-| `gitpaste.github.commitMessage` | `"Upload ${uploadedName} with GitPaste"` | 非空的 Git commit 信息模板，支持 `${uploadedName}`。 |
-| `gitpaste.github.conflictStrategy` | `"rename"` | 可选 `rename`、`overwrite`、`prompt`，详见“同名文件处理”。 |
-| `gitpaste.fileNameFormat` | 日期、时间和随机后缀 | 远端文件名模板。未提供图片扩展名时，会根据源文件名或 MIME 类型自动补充。 |
-| `gitpaste.outputFormat` | `![${uploadedName}](${url})` | 插入编辑器的文本；必须包含 `${url}`，可以生成 Markdown 或 HTML。 |
-| `gitpaste.includeImageName` | `true` | 设为 `false` 时 `${uploadedName}` 为空，默认输出变为 `![](${url})`。 |
-| `gitpaste.maxFileSizeMb` | `20` | 每张图片的客户端大小限制，范围 1-100 MB；GitHub 还可能有额外限制。 |
-| `gitpaste.uploadOnPaste` | `true` | 在 VS Code Web 中允许普通粘贴自动上传图片；桌面端有意忽略此项，仍使用专用快捷键。 |
+| `gitpaste.github.repository` | `""` | 必填的 `owner/repository` 目标仓库。不同项目使用不同仓库时应保存到工作区。|
+| `gitpaste.github.branch` | `"main"` | 接收上传和删除 commit 的分支；支持包含 `/` 的分支名。|
+| `gitpaste.github.path` | `"images"` | 仓库内图片目录；留空表示仓库根目录，禁止使用 `..` 路径段。|
+| `gitpaste.github.authenticationMethod` | `"github"` | `github` 使用 VS Code 登录；`pat` 使用 `SecretStorage` 中的令牌。通常由配置流程设置。|
+| `gitpaste.github.publicUrl` | `""` | 留空时使用 GitHub 返回的 Raw URL；自定义 HTTP(S) 模板必须包含 `${path}`。|
+| `gitpaste.github.commitMessage` | `"Upload ${uploadedName} with GitPaste"` | 非空的 Git commit 信息模板，支持 `${uploadedName}`。|
+| `gitpaste.github.conflictStrategy` | `"rename"` | 可选 `rename`、`overwrite`、`prompt`，详见“同名文件处理”。|
+| `gitpaste.fileNameFormat` | 日期、时间和随机后缀 | 远端文件名模板。未提供图片扩展名时，会根据源文件名或 MIME 类型自动补充。|
+| `gitpaste.outputFormat` | `![${uploadedName}](${url})` | 插入编辑器的文本；必须包含 `${url}`，可以生成 Markdown 或 HTML。|
+| `gitpaste.includeImageName` | `true` | 设为 `false` 时 `${uploadedName}` 为空，默认输出变为 `![](${url})`。|
+| `gitpaste.maxFileSizeMb` | `20` | 每张图片的客户端大小限制，范围 1-100 MB；GitHub 还可能有额外限制。|
+| `gitpaste.uploadOnPaste` | `true` | 在 VS Code Web 中允许普通粘贴自动上传图片；桌面端有意忽略此项，仍使用专用快捷键。|
 
 ### 模板变量
 

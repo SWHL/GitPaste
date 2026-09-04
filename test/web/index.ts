@@ -4,6 +4,7 @@ import {
   pasteDocumentSelector
 } from '../../src/paste-provider'
 import { findMarkdownImageAtOffset } from '../../src/markdown-image'
+import { TrackedDocumentRange } from '../../src/tracked-document-range'
 import type { GitPasteService } from '../../src/service'
 import type { UploadedImage } from '../../src/types'
 
@@ -41,7 +42,14 @@ export async function run(): Promise<void> {
   }
 
   await assertPasteEditContainsUploadedMarkdown()
+  await assertAppliedPasteIsConfirmed()
+  await assertCanceledPasteIsCleanedUp()
+  await assertUnappliedPasteIsCleanedUp()
   await assertPasteEditReplacesMarkdownImage()
+  await assertChangedReplacementTargetIsCanceled()
+  await assertReplacementChangedDuringUploadIsCleanedUp()
+  await assertTrackedRangeIgnoresCursorMovement()
+  await assertTrackedRangeInvalidatesOnOverlap()
   await assertExpiredReplacementFallsBackToNormalPaste()
 }
 
@@ -150,7 +158,15 @@ async function assertPasteEditReplacesMarkdownImage(): Promise<void> {
   assert(image, 'The replacement test image could not be parsed')
   provider.prepareImageReplacement(document, image)
 
-  const cursor = document.positionAt(original.indexOf('old.png'))
+  const prefix = 'Edited before upload. '
+  const prefixEdit = new vscode.WorkspaceEdit()
+  prefixEdit.insert(document.uri, new vscode.Position(0, 0), prefix)
+  assert(
+    await vscode.workspace.applyEdit(prefixEdit),
+    'Could not edit before the tracked replacement target'
+  )
+
+  const cursor = document.positionAt(document.getText().indexOf('old.png'))
   const edits = await provider.provideDocumentPasteEdits(
     document,
     [new vscode.Range(cursor, cursor)],
@@ -171,7 +187,7 @@ async function assertPasteEditReplacesMarkdownImage(): Promise<void> {
   )
   await waitFor(() => applied.length === 1)
   assert(
-    document.getText() === `Before ${expected} after`,
+    document.getText() === `${prefix}Before ${expected} after`,
     'The complete Markdown image was not replaced'
   )
   assert(
@@ -179,6 +195,236 @@ async function assertPasteEditReplacesMarkdownImage(): Promise<void> {
     'The replacement callback did not receive the old URL'
   )
   assert(applied[0].uploaded === uploaded, 'The replacement upload was lost')
+}
+
+async function assertAppliedPasteIsConfirmed(): Promise<void> {
+  const uploaded = uploadedImage('confirmed')
+  let inserted = 0
+  let notApplied = 0
+  const provider = new GitPastePasteProvider(
+    { uploadImages: async () => [uploaded] } as unknown as GitPasteService,
+    {
+      applied: async () => undefined,
+      inserted: async () => {
+        inserted += 1
+      },
+      notApplied: async () => {
+        notApplied += 1
+      }
+    }
+  )
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: ''
+  })
+  const range = new vscode.Range(0, 0, 0, 0)
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [range],
+    createImageTransfer('confirmed.png'),
+    pasteContext(),
+    new vscode.CancellationTokenSource().token
+  )
+  assert(edits?.length === 1, 'Confirmed paste did not return an edit')
+
+  const appliedEdit = new vscode.WorkspaceEdit()
+  appliedEdit.replace(document.uri, range, uploaded.output)
+  assert(await vscode.workspace.applyEdit(appliedEdit), 'Paste edit could not be applied')
+  await waitFor(() => inserted === 1)
+  assert(inserted === 1, 'Applied paste was not confirmed')
+  assert(notApplied === 0, 'Applied paste incorrectly requested cleanup')
+}
+
+async function assertCanceledPasteIsCleanedUp(): Promise<void> {
+  const uploaded = uploadedImage('canceled')
+  const cancellation = new vscode.CancellationTokenSource()
+  let inserted = 0
+  let notApplied = 0
+  const provider = new GitPastePasteProvider(
+    {
+      uploadImages: async () => {
+        cancellation.cancel()
+        return [uploaded]
+      }
+    } as unknown as GitPasteService,
+    {
+      applied: async () => undefined,
+      inserted: async () => {
+        inserted += 1
+      },
+      notApplied: async () => {
+        notApplied += 1
+      }
+    }
+  )
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: ''
+  })
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(0, 0, 0, 0)],
+    createImageTransfer('canceled.png'),
+    pasteContext(),
+    cancellation.token
+  )
+
+  await waitFor(() => notApplied === 1)
+  assert(!edits, 'Canceled paste returned a stale edit')
+  assert(notApplied === 1, 'Canceled paste did not request cleanup exactly once')
+  assert(inserted === 0, 'Canceled paste was reported as inserted')
+  cancellation.dispose()
+}
+
+async function assertUnappliedPasteIsCleanedUp(): Promise<void> {
+  const uploaded = uploadedImage('unapplied')
+  let inserted = 0
+  let notApplied = 0
+  const provider = new GitPastePasteProvider(
+    { uploadImages: async () => [uploaded] } as unknown as GitPasteService,
+    {
+      applied: async () => undefined,
+      inserted: async () => {
+        inserted += 1
+      },
+      notApplied: async () => {
+        notApplied += 1
+      }
+    },
+    60_000,
+    5
+  )
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: ''
+  })
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(0, 0, 0, 0)],
+    createImageTransfer('unapplied.png'),
+    pasteContext(),
+    new vscode.CancellationTokenSource().token
+  )
+
+  assert(edits?.length === 1, 'Unapplied paste did not return its candidate edit')
+  await waitFor(() => notApplied === 1)
+  assert(notApplied === 1, 'Unapplied paste did not request cleanup exactly once')
+  assert(inserted === 0, 'Unapplied paste was reported as inserted')
+}
+
+async function assertChangedReplacementTargetIsCanceled(): Promise<void> {
+  const original = '![old](https://example.com/old.png)'
+  let uploadCalls = 0
+  const provider = new GitPastePasteProvider({
+    uploadImages: async () => {
+      uploadCalls += 1
+      return [uploadedImage('new')]
+    }
+  } as unknown as GitPasteService)
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: original
+  })
+  const image = findMarkdownImageAtOffset(original, original.indexOf('old.png'))
+  assert(image, 'The changed-target test image could not be parsed')
+  provider.prepareImageReplacement(document, image)
+
+  const targetEdit = new vscode.WorkspaceEdit()
+  const changedPosition = document.positionAt(original.indexOf('old'))
+  targetEdit.replace(
+    document.uri,
+    new vscode.Range(changedPosition, changedPosition.translate(0, 3)),
+    'changed'
+  )
+  assert(await vscode.workspace.applyEdit(targetEdit), 'Could not change replacement target')
+
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(0, 0, 0, 0)],
+    createImageTransfer('new.png'),
+    pasteContext(),
+    new vscode.CancellationTokenSource().token
+  )
+  assert(!edits, 'Changed replacement target fell back to a normal upload')
+  assert(uploadCalls === 0, 'Changed replacement target uploaded an image')
+}
+
+async function assertReplacementChangedDuringUploadIsCleanedUp(): Promise<void> {
+  const original = '![old](https://example.com/old.png)'
+  const uploaded = uploadedImage('changed-during-upload')
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: original
+  })
+  let notApplied = 0
+  const provider = new GitPastePasteProvider(
+    {
+      uploadImages: async () => {
+        const edit = new vscode.WorkspaceEdit()
+        const position = document.positionAt(original.indexOf('old'))
+        edit.replace(
+          document.uri,
+          new vscode.Range(position, position.translate(0, 3)),
+          'changed'
+        )
+        assert(await vscode.workspace.applyEdit(edit), 'Could not change upload target')
+        return [uploaded]
+      }
+    } as unknown as GitPasteService,
+    {
+      applied: async () => undefined,
+      notApplied: async () => {
+        notApplied += 1
+      }
+    }
+  )
+  const image = findMarkdownImageAtOffset(original, original.indexOf('old.png'))
+  assert(image, 'The in-flight replacement test image could not be parsed')
+  provider.prepareImageReplacement(document, image)
+  const cursor = document.positionAt(original.indexOf('old.png'))
+
+  const edits = await provider.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(cursor, cursor)],
+    createImageTransfer('changed-during-upload.png'),
+    pasteContext(),
+    new vscode.CancellationTokenSource().token
+  )
+  await waitFor(() => notApplied === 1)
+  assert(!edits, 'Changed in-flight replacement returned a stale edit')
+  assert(notApplied === 1, 'Changed in-flight replacement was not cleaned up once')
+}
+
+async function assertTrackedRangeInvalidatesOnOverlap(): Promise<void> {
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: 'before target after'
+  })
+  const tracker = new TrackedDocumentRange(
+    document,
+    new vscode.Range(0, 7, 0, 13)
+  )
+  const edit = new vscode.WorkspaceEdit()
+  edit.replace(document.uri, new vscode.Range(0, 9, 0, 10), 'X')
+  assert(await vscode.workspace.applyEdit(edit), 'Could not edit tracked range')
+  assert(!tracker.isValid, 'Overlapping edit did not invalidate the tracked range')
+  assert(!tracker.resolve(), 'Invalid tracked range still resolved to a target')
+}
+
+async function assertTrackedRangeIgnoresCursorMovement(): Promise<void> {
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: 'one two'
+  })
+  const editor = await vscode.window.showTextDocument(document)
+  editor.selection = new vscode.Selection(0, 3, 0, 3)
+  const tracker = new TrackedDocumentRange(document, editor.selection)
+
+  editor.selection = new vscode.Selection(0, 7, 0, 7)
+  const resolved = tracker.resolve()
+  assert(resolved?.start.character === 3, 'Cursor movement changed the upload target')
+  assert(!tracker.isValid, 'Resolved tracker remained active')
+  assert(!tracker.resolve(), 'Resolved tracker returned a stale target twice')
 }
 
 async function assertExpiredReplacementFallsBackToNormalPaste(): Promise<void> {
@@ -235,6 +481,23 @@ function createImageTransfer(name: string): vscode.DataTransfer {
       }
     ]
   ] as unknown as vscode.DataTransfer
+}
+
+function pasteContext(): vscode.DocumentPasteEditContext {
+  return {
+    only: undefined,
+    triggerKind: vscode.DocumentPasteTriggerKind.Automatic
+  }
+}
+
+function uploadedImage(name: string): UploadedImage {
+  return {
+    originalName: name,
+    uploadedName: name,
+    remotePath: `images/${name}.png`,
+    url: `https://example.com/${name}.png`,
+    output: `![${name}](https://example.com/${name}.png)`
+  }
 }
 
 function assert(condition: unknown, message: string): asserts condition {

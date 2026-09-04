@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+
+- Command-based uploads now keep the insertion target captured when the command starts and track edits before that target instead of following later cursor movement.
+- Paste uploads now verify that the editor applied the returned Markdown and offer cleanup when a canceled paste completed its remote upload.
+- Image replacement now tolerates unrelated document edits while canceling safely if the target image itself changes.
+
 ## 0.4.0
 
 ### Fixed

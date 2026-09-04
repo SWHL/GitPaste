@@ -9,6 +9,7 @@
   "include": [
     "src/naming.ts",
     "src/markdown-image.ts",
+    "src/range-tracking.ts",
     "src/config-validation.ts",
     "src/upload-policy.ts",
     "src/providers/github.ts",

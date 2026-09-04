@@ -11,7 +11,15 @@ import {
   isSupportedImageName
 } from './service'
 import { findMarkdownImageAtOffset } from './markdown-image'
+import { TrackedDocumentRange } from './tracked-document-range'
 import type { ImageInput, UploadedImage } from './types'
+
+interface InsertionTarget {
+  readonly document: vscode.TextDocument
+  readonly range: TrackedDocumentRange
+  readonly documentName: string
+  readonly selectedText: string
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('GitPaste')
@@ -20,6 +28,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const pasteProvider = new GitPastePasteProvider(service, {
     applied: (oldUrl, uploaded) =>
       runCommand(() => finishImageReplacement(service, oldUrl, uploaded)),
+    inserted: async (uploaded) => {
+      await vscode.window.showInformationMessage(
+        `GitPaste: uploaded ${uploaded.length} image${
+          uploaded.length === 1 ? '' : 's'
+        }.`
+      )
+    },
     notApplied: (uploaded) =>
       runCommand(() => offerInsertionCleanup(service, uploaded))
   })
@@ -101,55 +116,71 @@ async function uploadFromClipboard(
 }
 
 async function uploadFromExplorer(service: GitPasteService): Promise<void> {
-  const uris = await vscode.window.showOpenDialog({
-    title: 'GitPaste: select images',
-    filters: imageFileFilters(),
-    canSelectMany: true,
-    canSelectFiles: true,
-    canSelectFolders: false
-  })
-  if (!uris?.length) return
-  const images = await Promise.all(uris.map((uri) => service.readUri(uri)))
-  applySelectedName(images)
-  await uploadAndInsert(service, images)
+  const target = captureInsertionTarget()
+  try {
+    const uris = await vscode.window.showOpenDialog({
+      title: 'GitPaste: select images',
+      filters: imageFileFilters(),
+      canSelectMany: true,
+      canSelectFiles: true,
+      canSelectFolders: false
+    })
+    if (!uris?.length) return
+    const images = await Promise.all(uris.map((uri) => service.readUri(uri)))
+    applySelectedName(images, target.selectedText)
+    await uploadAndInsert(service, images, target)
+  } finally {
+    target.range.dispose()
+  }
 }
 
 async function uploadFromInput(service: GitPasteService): Promise<void> {
-  const value = await vscode.window.showInputBox({
-    title: 'GitPaste: upload image',
-    prompt: 'Enter an HTTP URL, workspace-relative path, or VS Code URI.',
-    placeHolder: 'assets/image.png or https://example.com/image.png',
-    ignoreFocusOut: true
-  })
-  if (!value) return
-  const image = await service.readPathOrUrl(value)
-  if (!image.mimeType?.startsWith('image/') && !isSupportedImageName(image.name)) {
-    throw new Error('The selected resource is not a supported image.')
+  const target = captureInsertionTarget()
+  try {
+    const value = await vscode.window.showInputBox({
+      title: 'GitPaste: upload image',
+      prompt: 'Enter an HTTP URL, workspace-relative path, or VS Code URI.',
+      placeHolder: 'assets/image.png or https://example.com/image.png',
+      ignoreFocusOut: true
+    })
+    if (!value) return
+    const image = await service.readPathOrUrl(value, target.document.uri)
+    if (!image.mimeType?.startsWith('image/') && !isSupportedImageName(image.name)) {
+      throw new Error('The selected resource is not a supported image.')
+    }
+    applySelectedName([image], target.selectedText)
+    await uploadAndInsert(service, [image], target)
+  } finally {
+    target.range.dispose()
   }
-  applySelectedName([image])
-  await uploadAndInsert(service, [image])
 }
 
 async function uploadAndInsert(
   service: GitPasteService,
-  images: readonly ImageInput[]
+  images: readonly ImageInput[],
+  target: InsertionTarget
 ): Promise<void> {
-  const editor = vscode.window.activeTextEditor
-  if (!editor) {
-    throw new Error('Open an editor before uploading an image.')
+  if (!target.range.isValid) {
+    throw new Error('The image insertion target is no longer available.')
   }
-  const documentName = editor.document.uri.path.split('/').pop() || 'document'
-  const uploaded = await service.uploadImages(
-    images,
-    documentName,
-    new vscode.CancellationTokenSource().token
-  )
-  await insertUploadedWithCleanup(service, editor, uploaded)
-  await vscode.window.showInformationMessage(
-    `GitPaste: uploaded ${uploaded.length} image${
-      uploaded.length === 1 ? '' : 's'
-    }.`
-  )
+  const cancellation = new vscode.CancellationTokenSource()
+  const invalidation = target.range.onDidInvalidate(() => cancellation.cancel())
+  try {
+    const uploaded = await service.uploadImages(
+      images,
+      target.documentName,
+      cancellation.token
+    )
+    await insertUploadedWithCleanup(service, target, uploaded)
+    await vscode.window.showInformationMessage(
+      `GitPaste: uploaded ${uploaded.length} image${
+        uploaded.length === 1 ? '' : 's'
+      }.`
+    )
+  } finally {
+    invalidation.dispose()
+    cancellation.dispose()
+  }
 }
 
 async function replaceImageAtCursor(
@@ -159,7 +190,6 @@ async function replaceImageAtCursor(
   const editor = vscode.window.activeTextEditor
   if (!editor) throw new Error('Open a Markdown editor before replacing an image.')
   const document = editor.document
-  const originalVersion = document.version
   const image = findMarkdownImageAtOffset(
     document.getText(),
     document.offsetAt(editor.selection.active)
@@ -176,42 +206,56 @@ async function replaceImageAtCursor(
     return
   }
 
-  const uris = await vscode.window.showOpenDialog({
-    title: 'GitPaste: select replacement image',
-    filters: imageFileFilters(),
-    canSelectMany: false,
-    canSelectFiles: true,
-    canSelectFolders: false
-  })
-  if (!uris?.length) return
-  const input = await service.readUri(uris[0])
-  const uploaded = await service.uploadImages(
-    [input],
-    document.uri.path.split('/').pop() || 'document',
-    new vscode.CancellationTokenSource().token
+  const target = new TrackedDocumentRange(
+    document,
+    new vscode.Range(document.positionAt(image.start), document.positionAt(image.end))
   )
-  if (
-    vscode.window.activeTextEditor?.document !== document ||
-    document.version !== originalVersion
-  ) {
-    await offerInsertionCleanup(service, uploaded)
-    throw new Error('The document changed while the replacement image was uploading.')
-  }
-  const applied = await editor.edit((builder) => {
-    builder.replace(
-      new vscode.Range(
-        document.positionAt(image.start),
-        document.positionAt(image.end)
-      ),
-      uploaded[0].output
-    )
-  })
-  if (!applied) {
-    await offerInsertionCleanup(service, uploaded)
-    throw new Error('The Markdown image could not be replaced in the editor.')
-  }
+  try {
+    const uris = await vscode.window.showOpenDialog({
+      title: 'GitPaste: select replacement image',
+      filters: imageFileFilters(),
+      canSelectMany: false,
+      canSelectFiles: true,
+      canSelectFolders: false
+    })
+    if (!uris?.length) return
+    if (!target.isValid) {
+      throw new Error('The image replacement target is no longer available.')
+    }
+    const input = await service.readUri(uris[0])
+    if (!target.isValid) {
+      throw new Error('The image replacement target is no longer available.')
+    }
+    const cancellation = new vscode.CancellationTokenSource()
+    const invalidation = target.onDidInvalidate(() => cancellation.cancel())
+    let uploaded: UploadedImage[]
+    try {
+      uploaded = await service.uploadImages(
+        [input],
+        document.uri.path.split('/').pop() || 'document',
+        cancellation.token
+      )
+    } finally {
+      invalidation.dispose()
+      cancellation.dispose()
+    }
+    const replacementRange = target.resolve()
+    if (!replacementRange) {
+      await offerInsertionCleanup(service, uploaded)
+      throw new Error('The image replacement target changed while uploading.')
+    }
+    const edit = new vscode.WorkspaceEdit()
+    edit.replace(document.uri, replacementRange, uploaded[0].output)
+    const applied = await vscode.workspace.applyEdit(edit)
+    if (!applied) {
+      await offerInsertionCleanup(service, uploaded)
+      throw new Error('The Markdown image could not be replaced in the editor.')
+    }
 
-  await finishImageReplacement(service, image.url, uploaded[0])
+    await finishImageReplacement(service, image.url, uploaded[0])
+  } finally {
+    target.dispose()
+  }
 }
 
 async function finishImageReplacement(
@@ -248,13 +292,15 @@ async function finishImageReplacement(
 }
 
 async function insertUploaded(
-  editor: vscode.TextEditor,
+  target: InsertionTarget,
   uploaded: readonly UploadedImage[]
 ): Promise<void> {
   const text = uploaded.map((image) => image.output).join('\n')
-  const applied = await editor.edit((builder) => {
-    builder.replace(editor.selection, text)
-  })
+  const range = target.range.resolve()
+  if (!range) throw new Error('The image insertion target changed while uploading.')
+  const edit = new vscode.WorkspaceEdit()
+  edit.replace(target.document.uri, range, text)
+  const applied = await vscode.workspace.applyEdit(edit)
   if (!applied) {
     throw new Error('The Markdown link could not be inserted into the editor.')
   }
@@ -262,11 +308,11 @@ async function insertUploaded(
 
 async function insertUploadedWithCleanup(
   service: GitPasteService,
-  editor: vscode.TextEditor,
+  target: InsertionTarget,
   uploaded: readonly UploadedImage[]
 ): Promise<void> {
   try {
-    await insertUploaded(editor, uploaded)
+    await insertUploaded(target, uploaded)
   } catch (error) {
     await offerInsertionCleanup(service, uploaded)
     throw error
@@ -294,13 +340,23 @@ async function offerInsertionCleanup(
   }
 }
 
-function applySelectedName(images: ImageInput[]): void {
+function applySelectedName(images: ImageInput[], selectedText: string): void {
   if (images.length !== 1) return
-  const editor = vscode.window.activeTextEditor
-  const selected = editor?.document.getText(editor.selection).trim()
-  if (!selected) return
+  if (!selectedText) return
   const extension = images[0].name.match(/\.[^.]+$/)?.[0] || ''
-  images[0] = { ...images[0], name: `${selected}${extension}` }
+  images[0] = { ...images[0], name: `${selectedText}${extension}` }
+}
+
+function captureInsertionTarget(): InsertionTarget {
+  const editor = vscode.window.activeTextEditor
+  if (!editor) throw new Error('Open an editor before uploading an image.')
+  const document = editor.document
+  return {
+    document,
+    range: new TrackedDocumentRange(document, editor.selection),
+    documentName: document.uri.path.split('/').pop() || 'document',
+    selectedText: document.getText(editor.selection).trim()
+  }
 }
 
 async function configure(

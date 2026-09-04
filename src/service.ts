@@ -113,6 +113,10 @@ export class GitPasteService {
           }
           if (!uploadedImage) continue
           uploaded.push(uploadedImage)
+          if (token.isCancellationRequested || progressToken.isCancellationRequested) {
+            await this.offerCleanup(provider, target, uploaded)
+            throw new vscode.CancellationError()
+          }
           progress.report({
             message: index === images.length - 1 ? 'Done' : image.name,
             increment: 100 / images.length
@@ -256,7 +260,7 @@ export class GitPasteService {
     }
   }
 
-  async readPathOrUrl(value: string): Promise<ImageInput> {
+  async readPathOrUrl(value: string, documentUri?: vscode.Uri): Promise<ImageInput> {
     const trimmed = value.trim()
     if (/^https?:\/\//i.test(trimmed)) {
       const response = await fetch(trimmed)
@@ -277,7 +281,7 @@ export class GitPasteService {
       }
     }
 
-    const uri = resolveWorkspaceUri(trimmed)
+    const uri = resolveWorkspaceUri(trimmed, documentUri)
     if (!uri) {
       throw new Error('Open a workspace before uploading a relative path.')
     }
@@ -488,10 +492,14 @@ function validateRepository(value: string): string | undefined {
   }
 }
 
-function resolveWorkspaceUri(value: string): vscode.Uri | undefined {
+function resolveWorkspaceUri(
+  value: string,
+  documentUri?: vscode.Uri
+): vscode.Uri | undefined {
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
     return vscode.Uri.parse(value)
   }
+  if (documentUri) return vscode.Uri.joinPath(documentUri, '..', value)
   const editor = vscode.window.activeTextEditor
   if (editor) {
     return vscode.Uri.joinPath(editor.document.uri, '..', value)
