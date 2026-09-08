@@ -128,6 +128,19 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 | `gitpaste.maxFileSizeMb` | `20` | 每张图片的客户端大小限制，范围 1-100 MB；GitHub 还可能有额外限制。|
 | `gitpaste.uploadOnPaste` | `true` | 在 VS Code Web 中允许普通粘贴自动上传图片；桌面端有意忽略此项，仍使用专用快捷键。|
 
+默认输出格式是 Markdown。如果需要插入 HTML 图片标签，可以自定义
+`gitpaste.outputFormat`：
+
+```json
+{
+  "gitpaste.outputFormat": "<img src=\"${url}\" alt=\"${uploadedName}\">"
+}
+```
+
+上传完成后会生成类似 `<img src="https://example.com/image.png" alt="image">`
+的内容。HTML 格式适合 HTML 文档，或者需要设置 `width`、`height`、`loading`、
+`class` 等图片属性的场景；Markdown 和 MDX 文件仍推荐使用默认的 Markdown 格式。
+
 ### 模板变量
 
 | 模板 | 可用变量 |

@@ -142,6 +142,20 @@ A custom public URL must be HTTP(S) and include `${path}`; the output template m
 | `gitpaste.maxFileSizeMb` | `20` | Client-side size limit for each image; allowed range is 1-100 MB. GitHub may impose additional limits. |
 | `gitpaste.uploadOnPaste` | `true` | Enables ordinary image paste uploads in VS Code for the Web. It is intentionally ignored on desktop, where the dedicated shortcut remains required. |
 
+The default output is Markdown. To insert an HTML image element instead, customize
+`gitpaste.outputFormat`:
+
+```json
+{
+  "gitpaste.outputFormat": "<img src=\"${url}\" alt=\"${uploadedName}\">"
+}
+```
+
+This produces `<img src="https://example.com/image.png" alt="image">` after the
+upload completes. HTML output is useful for HTML documents or when you need image
+attributes such as `width`, `height`, `loading`, or `class`; Markdown remains the
+recommended default for Markdown and MDX files.
+
 ### Template Variables
 
 | Template | Variables |
