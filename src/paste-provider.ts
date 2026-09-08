@@ -163,86 +163,69 @@ export class GitPastePasteProvider
     }
 
     const documentName = document.uri.path.split('/').pop() || 'document'
-    const uploadCancellation = replacement
-      ? new vscode.CancellationTokenSource()
-      : undefined
-    const providerCancellation = uploadCancellation
-      ? token.onCancellationRequested(() => uploadCancellation.cancel())
-      : undefined
-    const targetInvalidation = uploadCancellation
-      ? replacement?.range.onDidInvalidate(() => uploadCancellation.cancel())
-      : undefined
+    const uploadCancellation = new vscode.CancellationTokenSource()
+    const providerCancellation = token.onCancellationRequested(() =>
+      uploadCancellation.cancel()
+    )
+    const upload = () =>
+      this.service.uploadImages(images, documentName, uploadCancellation.token)
+    const placeholder = images
+      .map((image) => uploadingPlaceholder(image.name))
+      .join('\n')
     try {
-      const uploaded = await this.service.uploadImages(
-        images,
-        documentName,
-        uploadCancellation?.token ?? token
-      )
-      if (token.isCancellationRequested) {
-        replacement?.range.dispose()
-        void this.replacementCallbacks?.notApplied(uploaded)
-        return undefined
-      }
       if (replacement) {
-        const replacementRange = replacement.range.resolve()
+        const replacementRange = replacement.range.current
         if (!replacementRange) {
           void vscode.window.showErrorMessage(
-            'GitPaste: the image replacement target changed while uploading.'
+            'GitPaste: the image replacement target changed before upload.'
           )
-          void this.replacementCallbacks?.notApplied(uploaded)
+          replacement.range.dispose()
+          uploadCancellation.cancel()
           return undefined
         }
-        const resolvedReplacement: PendingReplacement = {
-          ...replacement,
-          image: {
-            ...replacement.image,
-            start: document.offsetAt(replacementRange.start),
-            end: document.offsetAt(replacementRange.end)
-          }
-        }
-        const uploadedImage = uploaded[0]
         const edit = new vscode.DocumentPasteEdit(
           '',
-          'Replace image with GitPaste',
+          'Upload replacement image with GitPaste',
           pasteKind
         )
         const additionalEdit = new vscode.WorkspaceEdit()
         additionalEdit.replace(
           document.uri,
-          new vscode.Range(
-            document.positionAt(resolvedReplacement.image.start),
-            document.positionAt(resolvedReplacement.image.end)
-          ),
-          uploadedImage.output
+          replacementRange,
+          placeholder
         )
         edit.additionalEdit = additionalEdit
-        this.watchForAppliedReplacement(resolvedReplacement, uploadedImage)
+        this.watchForAppliedReplacement(
+          replacement,
+          placeholder,
+          upload,
+          uploadCancellation,
+          providerCancellation
+        )
         return [edit]
       }
 
-      const insertText = uploaded.map((image) => image.output).join('\n')
-      if (this.replacementCallbacks) {
-        this.watchForAppliedPaste(document, ranges, insertText, uploaded, token)
-      }
+      this.watchForAppliedPaste(
+        document,
+        ranges,
+        placeholder,
+        upload,
+        uploadCancellation,
+        providerCancellation
+      )
       return [
         new vscode.DocumentPasteEdit(
-          insertText,
-          'Upload image to GitHub with GitPaste',
+          placeholder,
+          'Uploading image with GitPaste',
           pasteKind
         )
       ]
     } catch (error) {
       replacement?.range.dispose()
-      if (!(error instanceof vscode.CancellationError)) {
-        void vscode.window.showErrorMessage(
-          `GitPaste: ${errorMessage(error)}`
-        )
-      }
+      uploadCancellation.cancel()
+      void vscode.window.showErrorMessage(`GitPaste: ${errorMessage(error)}`)
       return undefined
     } finally {
-      providerCancellation?.dispose()
-      targetInvalidation?.dispose()
-      uploadCancellation?.dispose()
     }
   }
 
@@ -294,57 +277,131 @@ export class GitPastePasteProvider
   private watchForAppliedPaste(
     document: vscode.TextDocument,
     ranges: readonly vscode.Range[],
-    insertText: string,
-    uploaded: readonly UploadedImage[],
-    token: vscode.CancellationToken
+    placeholder: string,
+    upload: () => Promise<UploadedImage[]>,
+    uploadCancellation: vscode.CancellationTokenSource,
+    providerCancellation: vscode.Disposable
   ): void {
     const expectedChanges = ranges.map((range) => ({
       offset: document.offsetAt(range.start),
       length: document.offsetAt(range.end) - document.offsetAt(range.start)
     }))
     let completed = false
+    let applied = false
+    let uploaded: readonly UploadedImage[] | undefined
+    let uploadFinished = false
+    let uploadStarted = false
+    let canceled = false
     let subscription: vscode.Disposable | undefined
     let cancellation: vscode.Disposable | undefined
     let timeout: ReturnType<typeof setTimeout> | undefined
-    const finish = (applied: boolean): void => {
+    const finish = async (
+      inserted: boolean,
+      completedUpload: readonly UploadedImage[] = []
+    ): Promise<void> => {
       if (completed) return
       completed = true
       subscription?.dispose()
       cancellation?.dispose()
       if (timeout) clearTimeout(timeout)
-      if (applied) {
-        void this.replacementCallbacks?.inserted?.(uploaded)
+      uploadCancellation.dispose()
+      providerCancellation.dispose()
+      if (inserted) {
+        const replacement = completedUpload.map((image) => image.output).join('\n')
+        const edit = new vscode.WorkspaceEdit()
+        const current = document.getText()
+        const offset = current.indexOf(placeholder)
+        if (offset >= 0) {
+          edit.replace(
+            document.uri,
+            new vscode.Range(document.positionAt(offset), document.positionAt(offset + placeholder.length)),
+            replacement
+          )
+          const appliedEdit = await vscode.workspace.applyEdit(edit)
+          if (!appliedEdit) {
+            void this.replacementCallbacks?.notApplied(completedUpload)
+            return
+          }
+        } else {
+          void this.replacementCallbacks?.notApplied(completedUpload)
+          return
+        }
+        void this.replacementCallbacks?.inserted?.(completedUpload)
       } else {
-        void this.replacementCallbacks?.notApplied(uploaded)
+        removePlaceholder(document, placeholder)
+        void this.replacementCallbacks?.notApplied(completedUpload)
       }
+    }
+
+    const complete = (): void => {
+      if (completed || !applied || !uploadFinished || !uploaded) return
+      if (canceled) {
+        void finish(false, uploaded)
+        return
+      }
+      void finish(true, uploaded)
+    }
+
+    const startUpload = (): void => {
+      if (uploadStarted) return
+      uploadStarted = true
+      void upload().then((completedUpload) => {
+        uploaded = completedUpload
+        uploadFinished = true
+        complete()
+      }).catch((error) => {
+        uploadFinished = true
+        if (!(error instanceof vscode.CancellationError)) {
+          void vscode.window.showErrorMessage(`GitPaste: ${errorMessage(error)}`)
+        }
+        void finish(false, uploaded ?? [])
+      })
     }
 
     subscription = vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document !== document) return
       const unmatchedChanges = [...event.contentChanges]
-      const applied = expectedChanges.every((expected) => {
+      const matched = expectedChanges.every((expected) => {
         const index = unmatchedChanges.findIndex(
           (change) =>
             change.rangeOffset === expected.offset &&
             change.rangeLength === expected.length &&
-            normalizeLineEndings(change.text) === normalizeLineEndings(insertText)
+            normalizeLineEndings(change.text) === normalizeLineEndings(placeholder)
         )
         if (index < 0) return false
         unmatchedChanges.splice(index, 1)
         return true
       })
-      if (applied) finish(true)
+      if (matched) {
+        applied = true
+        startUpload()
+        complete()
+      }
     })
-    cancellation = token.onCancellationRequested(() => finish(false))
-    timeout = setTimeout(() => finish(false), this.editApplicationTimeoutMs)
-    if (token.isCancellationRequested) finish(false)
+    cancellation = uploadCancellation.token.onCancellationRequested(() => {
+      canceled = true
+      if (uploadFinished) void finish(false, uploaded ?? [])
+    })
+    timeout = setTimeout(() => {
+      if (applied) return
+      uploadCancellation.cancel()
+      void finish(false, uploaded ?? [])
+    }, this.editApplicationTimeoutMs)
+    if (uploadCancellation.token.isCancellationRequested && uploadFinished) {
+      void finish(false, uploaded ?? [])
+    }
   }
 
   private watchForAppliedReplacement(
     replacement: PendingReplacement,
-    uploaded: UploadedImage
+    placeholder: string,
+    upload: () => Promise<UploadedImage[]>,
+    uploadCancellation: vscode.CancellationTokenSource,
+    providerCancellation: vscode.Disposable
   ): void {
     let completed = false
+    let uploadFinished = false
+    let uploaded: readonly UploadedImage[] | undefined
     let timeout: ReturnType<typeof setTimeout> | undefined
     const subscription = vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document !== replacement.document) return
@@ -353,19 +410,61 @@ export class GitPastePasteProvider
         (change) =>
           change.rangeOffset === replacement.image.start &&
           change.rangeLength === expectedLength &&
-          change.text === uploaded.output
+          change.text === placeholder
       )
       if (!applied) return
       completed = true
       subscription.dispose()
       if (timeout) clearTimeout(timeout)
-      void this.replacementCallbacks?.applied(replacement.image.url, uploaded)
+      void upload().then(async (completedUpload) => {
+        uploadFinished = true
+        uploaded = completedUpload
+        const image = completedUpload[0]
+        const edit = new vscode.WorkspaceEdit()
+        const current = replacement.document.getText()
+        const offset = current.indexOf(placeholder)
+        if (offset >= 0) {
+          edit.replace(
+            replacement.document.uri,
+            new vscode.Range(
+              replacement.document.positionAt(offset),
+              replacement.document.positionAt(offset + placeholder.length)
+            ),
+            image.output
+          )
+          const appliedEdit = await vscode.workspace.applyEdit(edit)
+          if (appliedEdit) {
+            void this.replacementCallbacks?.applied(replacement.image.url, image)
+          } else {
+            void this.replacementCallbacks?.notApplied(completedUpload)
+          }
+        } else {
+          removePlaceholder(replacement.document, placeholder)
+          void this.replacementCallbacks?.notApplied(completedUpload)
+        }
+        uploadCancellation.dispose()
+        providerCancellation.dispose()
+      }).catch((error) => {
+        uploadFinished = true
+        if (!(error instanceof vscode.CancellationError)) {
+          void vscode.window.showErrorMessage(`GitPaste: ${errorMessage(error)}`)
+        }
+        uploadCancellation.dispose()
+        providerCancellation.dispose()
+        removePlaceholder(replacement.document, placeholder)
+        void this.replacementCallbacks?.notApplied(uploaded ?? [])
+      })
     })
 
     timeout = setTimeout(() => {
       subscription.dispose()
       if (!completed) {
-        void this.replacementCallbacks?.notApplied([uploaded])
+        uploadCancellation.cancel()
+        providerCancellation.dispose()
+        if (uploadFinished) {
+          removePlaceholder(replacement.document, placeholder)
+          void this.replacementCallbacks?.notApplied(uploaded ?? [])
+        }
       }
     }, this.editApplicationTimeoutMs)
   }
@@ -382,4 +481,23 @@ function errorMessage(error: unknown): string {
 
 function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n/g, '\n')
+}
+
+function uploadingPlaceholder(name: string): string {
+  const cleanName = name.replace(/[\r\n<>]/g, '').trim() || 'image'
+  return `![Uploading ${cleanName}...]()`
+}
+
+function removePlaceholder(document: vscode.TextDocument, placeholder: string): void {
+  const offset = document.getText().indexOf(placeholder)
+  if (offset < 0) return
+  const edit = new vscode.WorkspaceEdit()
+  edit.delete(
+    document.uri,
+    new vscode.Range(
+      document.positionAt(offset),
+      document.positionAt(offset + placeholder.length)
+    )
+  )
+  void vscode.workspace.applyEdit(edit)
 }

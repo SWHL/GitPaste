@@ -73,6 +73,7 @@ async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {
   )
 
   const expected = '![clipboard](https://example.com/clipboard.png)'
+  const placeholder = '![Uploading clipboard.png...]()'
   const uploaded: UploadedImage = {
     originalName: 'clipboard',
     uploadedName: 'clipboard',
@@ -105,7 +106,11 @@ async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {
   )
 
   assert(edits?.length === 1, 'GitPaste did not return one image paste edit')
-  assert(edits[0].insertText === expected, 'GitPaste paste edit was empty')
+  assert(edits[0].insertText === placeholder, 'GitPaste upload placeholder was not inserted')
+  const applied = new vscode.WorkspaceEdit()
+  applied.replace(document.uri, new vscode.Range(0, 0, 0, 0), placeholder)
+  assert(await vscode.workspace.applyEdit(applied), 'Upload placeholder could not be applied')
+  await waitFor(() => document.getText() === expected)
 
   const textTransfer = [
     [
@@ -199,6 +204,7 @@ async function assertPasteEditReplacesMarkdownImage(): Promise<void> {
 
 async function assertAppliedPasteIsConfirmed(): Promise<void> {
   const uploaded = uploadedImage('confirmed')
+  const placeholder = '![Uploading confirmed.png...]()'
   let inserted = 0
   let notApplied = 0
   const provider = new GitPastePasteProvider(
@@ -228,7 +234,7 @@ async function assertAppliedPasteIsConfirmed(): Promise<void> {
   assert(edits?.length === 1, 'Confirmed paste did not return an edit')
 
   const appliedEdit = new vscode.WorkspaceEdit()
-  appliedEdit.replace(document.uri, range, uploaded.output)
+  appliedEdit.replace(document.uri, range, placeholder)
   assert(await vscode.workspace.applyEdit(appliedEdit), 'Paste edit could not be applied')
   await waitFor(() => inserted === 1)
   assert(inserted === 1, 'Applied paste was not confirmed')
@@ -269,8 +275,12 @@ async function assertCanceledPasteIsCleanedUp(): Promise<void> {
     cancellation.token
   )
 
+  assert(edits?.length === 1, 'Canceled paste did not return its placeholder edit')
+  const applied = new vscode.WorkspaceEdit()
+  applied.replace(document.uri, new vscode.Range(0, 0, 0, 0), '![Uploading canceled.png...]()')
+  assert(await vscode.workspace.applyEdit(applied), 'Canceled placeholder could not be applied')
   await waitFor(() => notApplied === 1)
-  assert(!edits, 'Canceled paste returned a stale edit')
+  cancellation.cancel()
   assert(notApplied === 1, 'Canceled paste did not request cleanup exactly once')
   assert(inserted === 0, 'Canceled paste was reported as inserted')
   cancellation.dispose()
@@ -280,8 +290,9 @@ async function assertUnappliedPasteIsCleanedUp(): Promise<void> {
   const uploaded = uploadedImage('unapplied')
   let inserted = 0
   let notApplied = 0
+  let uploadCalls = 0
   const provider = new GitPastePasteProvider(
-    { uploadImages: async () => [uploaded] } as unknown as GitPasteService,
+    { uploadImages: async () => { uploadCalls += 1; return [uploaded] } } as unknown as GitPasteService,
     {
       applied: async () => undefined,
       inserted: async () => {
@@ -310,6 +321,7 @@ async function assertUnappliedPasteIsCleanedUp(): Promise<void> {
   await waitFor(() => notApplied === 1)
   assert(notApplied === 1, 'Unapplied paste did not request cleanup exactly once')
   assert(inserted === 0, 'Unapplied paste was reported as inserted')
+  assert(uploadCalls === 0, 'Unapplied paste started an upload')
 }
 
 async function assertChangedReplacementTargetIsCanceled(): Promise<void> {
@@ -390,8 +402,12 @@ async function assertReplacementChangedDuringUploadIsCleanedUp(): Promise<void> 
     pasteContext(),
     new vscode.CancellationTokenSource().token
   )
+  assert(edits?.[0].additionalEdit, 'Changed replacement did not return a placeholder edit')
+  assert(
+    await vscode.workspace.applyEdit(edits[0].additionalEdit),
+    'Changed replacement placeholder could not be applied'
+  )
   await waitFor(() => notApplied === 1)
-  assert(!edits, 'Changed in-flight replacement returned a stale edit')
   assert(notApplied === 1, 'Changed in-flight replacement was not cleaned up once')
 }
 
@@ -463,8 +479,8 @@ async function assertExpiredReplacementFallsBackToNormalPaste(): Promise<void> {
 
   assert(edits?.length === 1, 'Normal paste did not resume after expiration')
   assert(
-    edits[0].insertText === uploaded.output,
-    'An expired request still replaced the old Markdown image'
+    edits[0].insertText === '![Uploading new.png...]()',
+    'Expired replacement did not fall back to a normal upload placeholder'
   )
   assert(!edits[0].additionalEdit, 'Expired replacement kept its additional edit')
 }

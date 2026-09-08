@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+### Improved
+
+- Image paste uploads now use a two-stage editor flow in desktop VS Code and VS Code for the Web. GitPaste immediately inserts a GitHub-style `![Uploading filename...]()` placeholder, then replaces it with the final Markdown image link after the upload completes.
+- Uploads now begin only after the placeholder has been accepted by the editor, so users receive immediate feedback and can continue editing while the image is uploaded.
+- Image replacement uses the same placeholder flow, keeping the replacement target stable while the upload runs.
+
 ## 0.4.1
 
 ### Fixed
