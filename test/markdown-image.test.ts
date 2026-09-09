@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { findMarkdownImageAtOffset } from '../src/markdown-image'
+import {
+  findMarkdownImageAtOffset,
+  findMarkdownImageUrlAtOffset
+} from '../src/markdown-image'
 
 test('finds a Markdown image containing the cursor', () => {
   const text = 'Before ![old image](https://example.com/old.png "title") after'
@@ -28,6 +31,12 @@ test('returns the exact replacement range without adjacent text', () => {
   const image = findMarkdownImageAtOffset(text, text.indexOf('old.png'))
   assert(image)
   assert.equal(text.slice(image.start, image.end), '![old](old.png)')
+})
+
+test('only recognizes the URL portion for image deletion', () => {
+  const text = '![old](https://example.com/old.png)'
+  assert(findMarkdownImageUrlAtOffset(text, text.indexOf('old.png')))
+  assert.equal(findMarkdownImageUrlAtOffset(text, text.indexOf('old')), undefined)
 })
 
 test('ignores malformed and reference-style images', () => {

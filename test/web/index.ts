@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
 import {
+  GitPastePasteGuard,
   GitPastePasteProvider,
   pasteDocumentSelector
 } from '../../src/paste-provider'
@@ -33,6 +34,7 @@ export async function run(): Promise<void> {
     'gitpaste.uploadImageFromExplorer',
     'gitpaste.uploadImageFromInputBox',
     'gitpaste.replaceImageAtCursor',
+    'gitpaste.deleteImageAtCursor',
     'gitpaste.checkConfiguration',
     'gitpaste.configure',
     'gitpaste.setToken',
@@ -42,6 +44,7 @@ export async function run(): Promise<void> {
   }
 
   await assertPasteEditContainsUploadedMarkdown()
+  await assertPlainTextImagePasteGetsGuidance()
   await assertAppliedPasteIsConfirmed()
   await assertCanceledPasteIsCleanedUp()
   await assertUnappliedPasteIsCleanedUp()
@@ -51,6 +54,26 @@ export async function run(): Promise<void> {
   await assertTrackedRangeIgnoresCursorMovement()
   await assertTrackedRangeInvalidatesOnOverlap()
   await assertExpiredReplacementFallsBackToNormalPaste()
+}
+
+async function assertPlainTextImagePasteGetsGuidance(): Promise<void> {
+  const document = await vscode.workspace.openTextDocument({
+    language: 'plaintext',
+    content: ''
+  })
+  const guard = new GitPastePasteGuard()
+  const edits = await guard.provideDocumentPasteEdits(
+    document,
+    [new vscode.Range(0, 0, 0, 0)],
+    createImageTransfer('clipboard.png'),
+    pasteContext(),
+    new vscode.CancellationTokenSource().token
+  )
+  assert(edits?.length === 1, 'Plain Text image paste did not return guidance')
+  assert(
+    edits[0].insertText === '',
+    'Plain Text image paste guidance unexpectedly changed the document'
+  )
 }
 
 async function assertPasteEditContainsUploadedMarkdown(): Promise<void> {

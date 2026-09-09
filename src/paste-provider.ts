@@ -16,6 +16,46 @@ export const pasteDocumentSelector: vscode.DocumentSelector = [
   'markdown',
   'mdx'
 ]
+export const pasteGuardDocumentSelector: vscode.DocumentSelector = [
+  { language: '*' }
+]
+
+export class GitPastePasteGuard implements vscode.DocumentPasteEditProvider {
+  async provideDocumentPasteEdits(
+    document: vscode.TextDocument,
+    _ranges: readonly vscode.Range[],
+    dataTransfer: vscode.DataTransfer,
+    _context: vscode.DocumentPasteEditContext,
+    _token: vscode.CancellationToken
+  ): Promise<vscode.DocumentPasteEdit[] | undefined> {
+    if (vscode.languages.match(pasteDocumentSelector, document) > 0) {
+      return undefined
+    }
+    for (const [mimeType] of dataTransfer) {
+      if (!mimeType.toLowerCase().startsWith('image/')) continue
+      void vscode.window
+        .showWarningMessage(
+          'GitPaste: image pasting is only supported in Markdown or MDX files.',
+          'Change language mode'
+        )
+        .then((choice) => {
+          if (choice === 'Change language mode') {
+            void vscode.commands.executeCommand(
+              'workbench.action.editor.changeLanguageMode'
+            )
+          }
+        })
+      return [
+        new vscode.DocumentPasteEdit(
+          '',
+          'GitPaste: image paste requires Markdown or MDX',
+          pasteKind
+        )
+      ]
+    }
+    return undefined
+  }
+}
 
 interface PendingReplacement {
   readonly document: vscode.TextDocument

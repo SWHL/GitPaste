@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- Added **Delete GitPaste Image** to the Markdown/MDX editor context menu and Command Palette. When the cursor is on a managed image URL, GitPaste confirms the target, deletes the GitHub file, and removes the local Markdown reference.
+- Added a guidance prompt for image pastes in Plain Text or other unsupported language modes. The prompt explains that Markdown or MDX is required and can open the language mode selector directly.
+
+### Improved
+
+- The delete command is shown only when the current URL maps to the configured GitHub repository, branch, public URL template, and image directory, with a supported image extension.
+- Ordinary text pastes and existing Markdown/MDX upload and replacement workflows remain unchanged.
+
+### Safety and Compatibility
+
+- Image deletion requires explicit confirmation and creates a GitHub deletion commit; it can break other references to the same URL and does not erase Git history.
+- Added regression coverage for command registration, menu conditions, URL recognition, unsupported-language paste guidance, and the existing upload/replacement flows.
+
 ## 0.5.0
 
 ### Improved

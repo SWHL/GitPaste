@@ -1,7 +1,9 @@
 import * as vscode from 'vscode'
 import { Credentials } from './credentials'
 import {
+  GitPastePasteGuard,
   GitPastePasteProvider,
+  pasteGuardDocumentSelector,
   pasteDocumentSelector,
   pasteProviderMetadata
 } from './paste-provider'
@@ -10,7 +12,10 @@ import {
   imageFileFilters,
   isSupportedImageName
 } from './service'
-import { findMarkdownImageAtOffset } from './markdown-image'
+import {
+  findMarkdownImageAtOffset,
+  findMarkdownImageUrlAtOffset
+} from './markdown-image'
 import { TrackedDocumentRange } from './tracked-document-range'
 import type { ImageInput, UploadedImage } from './types'
 
@@ -25,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('GitPaste')
   const credentials = new Credentials(context.secrets)
   const service = new GitPasteService(credentials, output)
+  const pasteGuard = new GitPastePasteGuard()
   const pasteProvider = new GitPastePasteProvider(service, {
     applied: (oldUrl, uploaded) =>
       runCommand(() => finishImageReplacement(service, oldUrl, uploaded)),
@@ -46,6 +52,11 @@ export function activate(context: vscode.ExtensionContext): void {
       pasteProvider,
       pasteProviderMetadata
     ),
+    vscode.languages.registerDocumentPasteEditProvider(
+      pasteGuardDocumentSelector,
+      pasteGuard,
+      pasteProviderMetadata
+    ),
     vscode.commands.registerCommand(
       'gitpaste.uploadImageFromClipboard',
       async () => runCommand(() => uploadFromClipboard(pasteProvider))
@@ -62,6 +73,10 @@ export function activate(context: vscode.ExtensionContext): void {
       'gitpaste.replaceImageAtCursor',
       async () =>
         runCommand(() => replaceImageAtCursor(service, pasteProvider))
+    ),
+    vscode.commands.registerCommand(
+      'gitpaste.deleteImageAtCursor',
+      async () => runCommand(() => deleteImageAtCursor(service))
     ),
     vscode.commands.registerCommand(
       'gitpaste.checkConfiguration',
@@ -96,6 +111,61 @@ export function activate(context: vscode.ExtensionContext): void {
       })
     )
   )
+  registerDeleteImageContext(context, service)
+}
+
+function registerDeleteImageContext(
+  context: vscode.ExtensionContext,
+  service: GitPasteService
+): void {
+  let requestId = 0
+  const update = (editor = vscode.window.activeTextEditor): void => {
+    const currentRequest = ++requestId
+    const image = editor && isMarkdownDocument(editor.document)
+      ? findMarkdownImageUrlAtOffset(
+          editor.document.lineAt(editor.selection.active.line).text,
+          editor.selection.active.character
+        )
+      : undefined
+    if (!image) {
+      void vscode.commands.executeCommand(
+        'setContext',
+        'gitpaste.canDeleteImage',
+        false
+      )
+      return
+    }
+    void service
+      .remotePathForUrl(image.url)
+      .then((remotePath) => {
+        if (currentRequest !== requestId) return
+        void vscode.commands.executeCommand(
+          'setContext',
+          'gitpaste.canDeleteImage',
+          Boolean(remotePath && isSupportedImageName(remotePath))
+        )
+      })
+      .catch(() => {
+        if (currentRequest !== requestId) return
+        void vscode.commands.executeCommand(
+          'setContext',
+          'gitpaste.canDeleteImage',
+          false
+        )
+      })
+  }
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeTextEditorSelection((event) => update(event.textEditor)),
+    vscode.window.onDidChangeActiveTextEditor((editor) => update(editor)),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (event.document === vscode.window.activeTextEditor?.document) update()
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('gitpaste')) update()
+    })
+  )
+  update()
 }
 
 export function deactivate(): void {}
@@ -253,6 +323,72 @@ async function replaceImageAtCursor(
     }
 
     await finishImageReplacement(service, image.url, uploaded[0])
+  } finally {
+    target.dispose()
+  }
+}
+
+async function deleteImageAtCursor(service: GitPasteService): Promise<void> {
+  const editor = vscode.window.activeTextEditor
+  if (!editor) throw new Error('Open a Markdown editor before deleting an image.')
+  if (!isMarkdownDocument(editor.document)) {
+    throw new Error('Open a Markdown or MDX editor before deleting an image.')
+  }
+
+  const document = editor.document
+  const image = findMarkdownImageUrlAtOffset(
+    document.getText(),
+    document.offsetAt(editor.selection.active)
+  )
+  if (!image) {
+    throw new Error(
+      'Place the cursor on the URL of an inline Markdown image before deleting it.'
+    )
+  }
+
+  const remotePath = await service.remotePathForUrl(image.url)
+  if (!remotePath || !isSupportedImageName(remotePath)) {
+    throw new Error(
+      'This URL is not a supported GitPaste image in the configured repository.'
+    )
+  }
+
+  const target = new TrackedDocumentRange(
+    document,
+    new vscode.Range(document.positionAt(image.start), document.positionAt(image.end))
+  )
+  try {
+    const choice = await vscode.window.showWarningMessage(
+      `GitPaste: delete ${remotePath}?`,
+      {
+        modal: true,
+        detail:
+          'This creates a deletion commit and removes the Markdown image from this document. Other references to the same image may also break.'
+      },
+      'Delete image'
+    )
+    if (choice !== 'Delete image') return
+    if (!target.isValid) {
+      throw new Error('The image changed before it could be deleted.')
+    }
+
+    await service.deleteRemotePath(remotePath)
+    const range = target.resolve()
+    if (!range) {
+      throw new Error(
+        'The remote image was deleted, but the Markdown image changed before it could be removed.'
+      )
+    }
+    const edit = new vscode.WorkspaceEdit()
+    edit.delete(document.uri, range)
+    if (!(await vscode.workspace.applyEdit(edit))) {
+      throw new Error(
+        'The remote image was deleted, but the Markdown image could not be removed.'
+      )
+    }
+    await vscode.window.showInformationMessage(
+      `GitPaste: deleted ${remotePath} and removed its Markdown reference.`
+    )
   } finally {
     target.dispose()
   }
@@ -474,4 +610,8 @@ async function runCommand(action: () => Promise<void>): Promise<void> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isMarkdownDocument(document: vscode.TextDocument): boolean {
+  return document.languageId === 'markdown' || document.languageId === 'mdx'
 }

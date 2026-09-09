@@ -5,10 +5,34 @@ export interface MarkdownImage {
   readonly url: string
 }
 
+interface ParsedMarkdownImage extends MarkdownImage {
+  readonly urlStart: number
+  readonly urlEnd: number
+}
+
+export function findMarkdownImageUrlAtOffset(
+  text: string,
+  offset: number
+): MarkdownImage | undefined {
+  const image = findParsedMarkdownImageAtOffset(text, offset)
+  if (!image || offset < image.urlStart || offset > image.urlEnd) {
+    return undefined
+  }
+  return publicImage(image)
+}
+
 export function findMarkdownImageAtOffset(
   text: string,
   offset: number
 ): MarkdownImage | undefined {
+  const image = findParsedMarkdownImageAtOffset(text, offset)
+  return image ? publicImage(image) : undefined
+}
+
+function findParsedMarkdownImageAtOffset(
+  text: string,
+  offset: number
+): ParsedMarkdownImage | undefined {
   let start = text.lastIndexOf('![', offset)
   while (start >= 0) {
     const image = parseMarkdownImage(text, start)
@@ -22,7 +46,7 @@ export function findMarkdownImageAtOffset(
 function parseMarkdownImage(
   text: string,
   start: number
-): MarkdownImage | undefined {
+): ParsedMarkdownImage | undefined {
   const altEnd = findUnescaped(text, ']', start + 2)
   if (altEnd < 0 || text[altEnd + 1] !== '(') return undefined
 
@@ -63,8 +87,19 @@ function parseMarkdownImage(
   return {
     start,
     end: closingParen + 1,
+    urlStart,
+    urlEnd,
     alt: unescapeMarkdown(text.slice(start + 2, altEnd)),
     url: unescapeMarkdown(text.slice(urlStart, urlEnd))
+  }
+}
+
+function publicImage(image: ParsedMarkdownImage): MarkdownImage {
+  return {
+    start: image.start,
+    end: image.end,
+    alt: image.alt,
+    url: image.url
   }
 }
 

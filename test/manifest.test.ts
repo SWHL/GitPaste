@@ -6,6 +6,9 @@ interface Manifest {
   activationEvents: string[]
   contributes: {
     commands: Array<{ command: string }>
+    menus: {
+      'editor/context': Array<{ command: string; when?: string }>
+    }
     configuration: {
       properties: Record<
         string,
@@ -28,6 +31,7 @@ test('registers new commands without removing existing upload commands', () => {
     'gitpaste.uploadImageFromExplorer',
     'gitpaste.uploadImageFromInputBox',
     'gitpaste.replaceImageAtCursor',
+    'gitpaste.deleteImageAtCursor',
     'gitpaste.checkConfiguration'
   ]) {
     assert(commands.includes(command), `${command} is missing from the manifest`)
@@ -36,6 +40,25 @@ test('registers new commands without removing existing upload commands', () => {
       `${command} is missing its activation event`
     )
   }
+})
+
+test('keeps existing editor context commands independent from deletion', () => {
+  const entries = manifest.contributes.menus['editor/context']
+  const whenFor = (command: string) =>
+    entries.find((entry) => entry.command === command)?.when
+
+  assert.equal(
+    whenFor('gitpaste.uploadImageFromExplorer'),
+    'editorLangId == markdown || editorLangId == mdx'
+  )
+  assert.equal(
+    whenFor('gitpaste.replaceImageAtCursor'),
+    'editorLangId == markdown || editorLangId == mdx'
+  )
+  assert.match(
+    whenFor('gitpaste.deleteImageAtCursor') || '',
+    /gitpaste\.canDeleteImage/
+  )
 })
 
 test('declares all conflict choices and keeps desktop paste behavior unchanged', () => {
