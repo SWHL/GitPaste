@@ -2,7 +2,7 @@
   "name": "gitpaste",
   "displayName": "GitPaste",
   "description": "Paste images into Markdown and upload them directly to GitHub. Works in VS Code for the Web and desktop.",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": {
     "name": "SWHL",
     "email": "liekkaskono@163.com"
@@ -48,50 +48,41 @@
     "commands": [
       {
         "command": "gitpaste.uploadImageFromClipboard",
-        "title": "Upload Image from Clipboard",
-        "category": "GitPaste"
+        "title": "GitPaste: Upload Image from Clipboard"
       },
       {
         "command": "gitpaste.uploadImageFromExplorer",
-        "title": "Upload Images from Explorer",
-        "category": "GitPaste"
+        "title": "GitPaste: Upload Images from Explorer"
       },
       {
         "command": "gitpaste.uploadImageFromInputBox",
-        "title": "Upload Image from Path or URL",
-        "category": "GitPaste"
+        "title": "GitPaste: Upload Image from Path or URL"
       },
       {
         "command": "gitpaste.replaceImageAtCursor",
-        "title": "Replace Image at Cursor",
-        "category": "GitPaste"
+        "title": "GitPaste: Replace Image at Cursor"
       },
       {
         "command": "gitpaste.deleteImageAtCursor",
-        "title": "Delete GitPaste Image",
-        "category": "GitPaste",
+        "title": "GitPaste: Delete GitPaste Image",
         "enablement": "gitpaste.canDeleteImage",
         "icon": "$(trash)"
       },
       {
         "command": "gitpaste.checkConfiguration",
-        "title": "Check Configuration",
-        "category": "GitPaste"
+        "title": "GitPaste: Check Configuration"
       },
       {
         "command": "gitpaste.configure",
-        "title": "Configure GitHub Repository",
-        "category": "GitPaste"
+        "title": "GitPaste: Configure GitHub Repository"
       },
       {
         "command": "gitpaste.setToken",
-        "title": "Set Personal Access Token",
-        "category": "GitPaste"
+        "title": "GitPaste: Set Personal Access Token"
       },
       {
         "command": "gitpaste.clearToken",
-        "title": "Clear Personal Access Token",
-        "category": "GitPaste"
+        "title": "GitPaste: Clear Personal Access Token"
       }
     ],
     "keybindings": [

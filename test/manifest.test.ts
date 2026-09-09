@@ -5,7 +5,7 @@ import test from 'node:test'
 interface Manifest {
   activationEvents: string[]
   contributes: {
-    commands: Array<{ command: string }>
+    commands: Array<{ command: string; title: string; category?: string }>
     menus: {
       'editor/context': Array<{ command: string; when?: string }>
     }
@@ -25,7 +25,8 @@ const englishReadme = readFileSync('README.md', 'utf8')
 const chineseReadme = readFileSync('docs/README_ZH.md', 'utf8')
 
 test('registers new commands without removing existing upload commands', () => {
-  const commands = manifest.contributes.commands.map(({ command }) => command)
+  const commandEntries = manifest.contributes.commands
+  const commands = commandEntries.map(({ command }) => command)
   for (const command of [
     'gitpaste.uploadImageFromClipboard',
     'gitpaste.uploadImageFromExplorer',
@@ -38,6 +39,17 @@ test('registers new commands without removing existing upload commands', () => {
     assert(
       manifest.activationEvents.includes(`onCommand:${command}`),
       `${command} is missing its activation event`
+    )
+  }
+})
+
+test('labels GitPaste commands in menus without relying on command categories', () => {
+  for (const command of manifest.contributes.commands) {
+    assert.match(command.title, /^GitPaste: /, `${command.command} is missing its GitPaste label`)
+    assert.equal(
+      command.category,
+      undefined,
+      `${command.command} should not duplicate the GitPaste label in the Command Palette`
     )
   }
 })

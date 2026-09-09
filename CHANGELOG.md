@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1
+
+### Improved
+
+- GitPaste commands in the editor context menu and Command Palette now use a clear `GitPaste: ...` prefix, making them easier to distinguish from VS Code and other extensions.
+- Removed redundant command categories so GitPaste commands do not display a duplicated prefix in the Command Palette.
+
 ## 0.6.0
 
 ### Added
