@@ -1,5 +1,5 @@
 import * as vscode from 'vscode'
-import { GitPasteService } from './service'
+import { GitPasteService, isSupportedImageName } from './service'
 import type { MarkdownImage } from './markdown-image'
 import { TrackedDocumentRange } from './tracked-document-range'
 import type { ImageInput, UploadedImage } from './types'
@@ -8,6 +8,12 @@ const pasteKind = vscode.DocumentDropOrPasteEditKind.Empty.append(
   'markdown',
   'image',
   'gitpaste'
+)
+const dropKind = vscode.DocumentDropOrPasteEditKind.Empty.append(
+  'markdown',
+  'image',
+  'gitpaste',
+  'drop'
 )
 const DEFAULT_REPLACEMENT_TIMEOUT_MS = 60_000
 const DEFAULT_EDIT_APPLICATION_TIMEOUT_MS = 10_000
@@ -78,8 +84,7 @@ interface ReplacementCallbacks {
 }
 
 export class GitPastePasteProvider
-  implements vscode.DocumentPasteEditProvider
-{
+  implements vscode.DocumentPasteEditProvider, vscode.DocumentDropEditProvider {
   private explicitPasteRequests = 0
   private pendingReplacement: PendingReplacement | undefined
   private pendingReplacementTimeout: ReturnType<typeof setTimeout> | undefined
@@ -89,7 +94,7 @@ export class GitPastePasteProvider
     private readonly replacementCallbacks?: ReplacementCallbacks,
     private readonly replacementTimeoutMs = DEFAULT_REPLACEMENT_TIMEOUT_MS,
     private readonly editApplicationTimeoutMs = DEFAULT_EDIT_APPLICATION_TIMEOUT_MS
-  ) {}
+  ) { }
 
   prepareImageReplacement(
     document: vscode.TextDocument,
@@ -138,6 +143,9 @@ export class GitPastePasteProvider
     _context: vscode.DocumentPasteEditContext,
     token: vscode.CancellationToken
   ): Promise<vscode.DocumentPasteEdit[] | undefined> {
+    // A file drop can also be surfaced as a paste request by VS Code. Leave
+    // those transfers to the drop provider so one file is not uploaded twice.
+    if (isFileDropTransfer(dataTransfer)) return undefined
     const replacementState = this.takePendingReplacement(document, ranges)
     if (replacementState.kind === 'invalid') return undefined
     const replacement =
@@ -250,6 +258,7 @@ export class GitPastePasteProvider
         ranges,
         placeholder,
         upload,
+        images.length,
         uploadCancellation,
         providerCancellation
       )
@@ -267,6 +276,93 @@ export class GitPastePasteProvider
       return undefined
     } finally {
     }
+  }
+
+  async provideDocumentDropEdits(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    dataTransfer: vscode.DataTransfer,
+    token: vscode.CancellationToken
+  ): Promise<vscode.DocumentDropEdit[] | undefined> {
+    if (token.isCancellationRequested) return undefined
+    const images = await this.imagesFromTransfer(dataTransfer)
+    if (!images.length) return undefined
+
+    const placeholder = images
+      .map((image) => uploadingPlaceholder(image.name))
+      .join('\n')
+    const uploadCancellation = new vscode.CancellationTokenSource()
+    const providerCancellation = token.onCancellationRequested(() =>
+      uploadCancellation.cancel()
+    )
+    const range = new vscode.Range(position, position)
+    const documentName = document.uri.path.split('/').pop() || 'document'
+    const upload = () =>
+      this.service.uploadImages(images, documentName, uploadCancellation.token)
+    this.watchForAppliedPaste(
+      document,
+      [range],
+      placeholder,
+      upload,
+      images.length,
+      uploadCancellation,
+      providerCancellation
+    )
+    return [
+      new vscode.DocumentDropEdit(
+        placeholder,
+        'Upload image with GitPaste',
+        dropKind
+      )
+    ]
+  }
+
+  private async imagesFromTransfer(
+    dataTransfer: vscode.DataTransfer
+  ): Promise<ImageInput[]> {
+    const images: ImageInput[] = []
+    const seen = new Set<string>()
+    const addImage = async (image: ImageInput, uri?: vscode.Uri): Promise<void> => {
+      const contentKey = Array.from(image.data).join(',')
+      const key = `${uri?.toString() ?? image.name}:${image.data.length}:${contentKey}`
+      if (seen.has(key)) return
+      seen.add(key)
+      images.push(image)
+    }
+    for (const [mimeType, item] of dataTransfer) {
+      if (mimeType.toLowerCase() === 'text/uri-list') {
+        const uris = (await item.asString())
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean)
+        for (const value of uris) {
+          const uri = vscode.Uri.parse(value)
+          const name = uri.path.split('/').pop() || 'dropped-image'
+          if (!isSupportedImageName(name)) continue
+          try {
+            await addImage({
+              data: await vscode.workspace.fs.readFile(uri),
+              name,
+              mimeType: undefined
+            }, uri)
+          } catch {
+            continue
+          }
+        }
+        continue
+      }
+      const file = item.asFile()
+      if (!file) continue
+      const imageMime = mimeType.toLowerCase().startsWith('image/')
+      const imageName = file.name || 'dropped-image'
+      if (!imageMime && !isSupportedImageName(imageName)) continue
+      await addImage({
+        data: await file.data(),
+        name: imageName,
+        mimeType: imageMime ? mimeType : undefined
+      }, file.uri)
+    }
+    return images
   }
 
   private takePendingReplacement(
@@ -319,6 +415,7 @@ export class GitPastePasteProvider
     ranges: readonly vscode.Range[],
     placeholder: string,
     upload: () => Promise<UploadedImage[]>,
+    expectedUploadCount: number,
     uploadCancellation: vscode.CancellationTokenSource,
     providerCancellation: vscode.Disposable
   ): void {
@@ -335,47 +432,44 @@ export class GitPastePasteProvider
     let subscription: vscode.Disposable | undefined
     let cancellation: vscode.Disposable | undefined
     let timeout: ReturnType<typeof setTimeout> | undefined
+    let insertedRanges: TrackedDocumentRange[] = []
     const finish = async (
       inserted: boolean,
       completedUpload: readonly UploadedImage[] = []
     ): Promise<void> => {
       if (completed) return
       completed = true
+      const currentInsertedRanges = insertedRanges
+        .map((range) => range.current)
+        .filter((range): range is vscode.Range => !!range)
       subscription?.dispose()
       cancellation?.dispose()
       if (timeout) clearTimeout(timeout)
+      insertedRanges.forEach((range) => range.dispose())
       uploadCancellation.dispose()
       providerCancellation.dispose()
-      if (inserted) {
-        const replacement = completedUpload.map((image) => image.output).join('\n')
+      if (inserted && currentInsertedRanges.length === completedUpload.length) {
         const edit = new vscode.WorkspaceEdit()
-        const current = document.getText()
-        const offset = current.indexOf(placeholder)
-        if (offset >= 0) {
-          edit.replace(
-            document.uri,
-            new vscode.Range(document.positionAt(offset), document.positionAt(offset + placeholder.length)),
-            replacement
-          )
-          const appliedEdit = await vscode.workspace.applyEdit(edit)
-          if (!appliedEdit) {
-            void this.replacementCallbacks?.notApplied(completedUpload)
-            return
-          }
-        } else {
+        currentInsertedRanges.forEach((range, index) => {
+          edit.replace(document.uri, range, completedUpload[index].output)
+        })
+        const appliedEdit = await vscode.workspace.applyEdit(edit)
+        if (!appliedEdit) {
           void this.replacementCallbacks?.notApplied(completedUpload)
           return
         }
         void this.replacementCallbacks?.inserted?.(completedUpload)
       } else {
-        removePlaceholder(document, placeholder)
+        currentInsertedRanges.forEach((range) =>
+          removePlaceholder(document, placeholderForRange(document, range), range)
+        )
         void this.replacementCallbacks?.notApplied(completedUpload)
       }
     }
 
     const complete = (): void => {
       if (completed || !applied || !uploadFinished || !uploaded) return
-      if (canceled) {
+      if (canceled || uploaded.length !== expectedUploadCount) {
         void finish(false, uploaded)
         return
       }
@@ -414,6 +508,23 @@ export class GitPastePasteProvider
       })
       if (matched) {
         applied = true
+        const change = event.contentChanges.find(
+          (candidate) =>
+            normalizeLineEndings(candidate.text) === normalizeLineEndings(placeholder)
+        )
+        if (change) {
+          let offset = change.rangeOffset
+          insertedRanges = Array.from({ length: expectedUploadCount }, (_, index) => {
+            const text = placeholderForIndex(placeholder, index, expectedUploadCount)
+            const start = offset
+            offset += text.length
+            if (index < expectedUploadCount - 1) offset += 1
+            return new TrackedDocumentRange(
+              document,
+              new vscode.Range(document.positionAt(start), document.positionAt(start + text.length))
+            )
+          })
+        }
         startUpload()
         complete()
       }
@@ -515,6 +626,11 @@ export const pasteProviderMetadata: vscode.DocumentPasteProviderMetadata = {
   pasteMimeTypes: ['image/*', 'text/plain', 'files']
 }
 
+export const dropProviderMetadata: vscode.DocumentDropEditProviderMetadata = {
+  providedDropEditKinds: [dropKind],
+  dropMimeTypes: ['image/*', 'files', 'text/uri-list']
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -523,14 +639,43 @@ function normalizeLineEndings(value: string): string {
   return value.replace(/\r\n/g, '\n')
 }
 
+function isFileDropTransfer(dataTransfer: vscode.DataTransfer): boolean {
+  for (const [mimeType] of dataTransfer) {
+    const normalized = mimeType.toLowerCase()
+    if (normalized === 'files' || normalized === 'text/uri-list') return true
+  }
+  return false
+}
+
 function uploadingPlaceholder(name: string): string {
   const cleanName = name.replace(/[\r\n<>]/g, '').trim() || 'image'
   return `![Uploading ${cleanName}...]()`
 }
 
-function removePlaceholder(document: vscode.TextDocument, placeholder: string): void {
-  const offset = document.getText().indexOf(placeholder)
+function placeholderForIndex(
+  placeholder: string,
+  index: number,
+  count: number
+): string {
+  if (count === 1) return placeholder
+  return placeholder.split('\n')[index]
+}
+
+function placeholderForRange(
+  document: vscode.TextDocument,
+  range: vscode.Range
+): string {
+  return document.getText(range)
+}
+
+function removePlaceholder(
+  document: vscode.TextDocument,
+  placeholder: string,
+  range?: vscode.Range
+): void {
+  const offset = range ? document.offsetAt(range.start) : document.getText().indexOf(placeholder)
   if (offset < 0) return
+  if (range && document.getText().slice(offset, document.offsetAt(range.end)) !== placeholder) return
   const edit = new vscode.WorkspaceEdit()
   edit.delete(
     document.uri,

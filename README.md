@@ -16,6 +16,7 @@ The first release supports GitHub only. The upload layer is provider-based so mo
 
 - Paste a clipboard image into Markdown and MDX in VS Code for the Web.
 - Upload one or more images selected from the VS Code file picker.
+- Drag one or more image files into a Markdown or MDX editor to upload them at the drop location.
 - Upload an image from a workspace-relative path, VS Code URI, or HTTP URL.
 - Replace the Markdown image under the cursor and optionally delete its old remote file.
 - Delete a GitPaste-hosted Markdown image from GitHub and remove its local reference from the editor.
@@ -51,6 +52,7 @@ After PAT authentication is selected, GitPaste asks for the PAT again if SecretS
 | Set/Clear Personal Access Token | Command Palette | Command Palette |
 
 Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads image clipboard data while text and other clipboard content continue to use normal paste. The GitPaste clipboard shortcut is desktop-only because browsers expose binary clipboard data only through a real paste event.
+You can also drag image files from a file manager into a Markdown or MDX editor. GitPaste inserts upload placeholders at the mouse release position, then replaces them with the finished links. Non-image files keep VS Code's normal drop behavior.
 If an image is pasted while the editor is in Plain Text or another unsupported language mode, GitPaste shows a prompt explaining that Markdown or MDX is required and offers to open the language selector.
 
 Explorer and path/URL uploads keep the insertion target captured when the command starts. Moving the cursor or editing elsewhere in the same document does not redirect the result. Edits before the target move it with the surrounding text; changing text that overlaps the target cancels insertion and offers cleanup if the remote upload already completed.

@@ -7,6 +7,10 @@
 - Keep **Delete GitPaste Image** available in Markdown and MDX editor context menus even when the cursor context has not finished updating. The command still validates the image syntax, repository mapping, and supported extension before deleting anything.
 - Treat the end of a Markdown image and the end of its URL as outside the image, preventing boundary-position misclassification.
 
+### Added
+
+- Drag and drop one or more image files into Markdown or MDX editors. Images are inserted at the drop position and use the existing upload progress, cancellation, and cleanup flow.
+
 ## 0.6.1
 
 ### Improved

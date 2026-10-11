@@ -44,6 +44,7 @@ export async function run(): Promise<void> {
   }
 
   await assertPasteEditContainsUploadedMarkdown()
+  await assertDropEditUploadsAtDropPosition()
   await assertPlainTextImagePasteGetsGuidance()
   await assertAppliedPasteIsConfirmed()
   await assertCanceledPasteIsCleanedUp()
@@ -54,6 +55,50 @@ export async function run(): Promise<void> {
   await assertTrackedRangeIgnoresCursorMovement()
   await assertTrackedRangeInvalidatesOnOverlap()
   await assertExpiredReplacementFallsBackToNormalPaste()
+}
+
+async function assertDropEditUploadsAtDropPosition(): Promise<void> {
+  const first = uploadedImage('first')
+  const second = uploadedImage('second')
+  let uploadCalls = 0
+  const service = {
+    uploadImages: async (images: readonly { name: string }[]) => {
+      uploadCalls += 1
+      assert(images.length === 2, 'Drop did not collect both image files')
+      return [first, second]
+    }
+  } as unknown as GitPasteService
+  const provider = new GitPastePasteProvider(service)
+  const document = await vscode.workspace.openTextDocument({
+    language: 'markdown',
+    content: 'before\nafter'
+  })
+  const position = new vscode.Position(0, 'before'.length)
+  const edits = await provider.provideDocumentDropEdits(
+    document,
+    position,
+    createDropTransfer(['first.png', 'second.png']),
+    new vscode.CancellationTokenSource().token
+  )
+  assert(edits?.length === 1, 'GitPaste did not return one drop edit')
+  assert(
+    edits[0].insertText ===
+    '![Uploading first.png...]()\n![Uploading second.png...]()',
+    'Drop edit did not contain placeholders for all images'
+  )
+  const applied = new vscode.WorkspaceEdit()
+  applied.replace(document.uri, new vscode.Range(position, position), edits[0].insertText)
+  assert(await vscode.workspace.applyEdit(applied), 'Drop placeholder could not be applied')
+  await waitFor(() => document.getText() === `before${first.output}\n${second.output}\nafter`)
+  assert(uploadCalls === 1, 'Drop upload was not started exactly once')
+
+  const textOnly = await provider.provideDocumentDropEdits(
+    document,
+    position,
+    createTextTransfer(),
+    new vscode.CancellationTokenSource().token
+  )
+  assert(!textOnly, 'Drop provider intercepted a non-image file')
 }
 
 async function assertPlainTextImagePasteGetsGuidance(): Promise<void> {
@@ -515,6 +560,32 @@ function createImageTransfer(name: string): vscode.DataTransfer {
       {
         asFile: () => ({
           name,
+          data: async () => new Uint8Array([1, 2, 3])
+        })
+      }
+    ]
+  ] as unknown as vscode.DataTransfer
+}
+
+function createDropTransfer(names: string[]): vscode.DataTransfer {
+  return names.map((name) => [
+    'files',
+    {
+      asFile: () => ({
+        name,
+        data: async () => new Uint8Array([1, 2, 3])
+      })
+    }
+  ]) as unknown as vscode.DataTransfer
+}
+
+function createTextTransfer(): vscode.DataTransfer {
+  return [
+    [
+      'text/plain',
+      {
+        asFile: () => ({
+          name: 'notes.txt',
           data: async () => new Uint8Array([1, 2, 3])
         })
       }

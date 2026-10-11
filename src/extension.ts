@@ -5,7 +5,8 @@ import {
   GitPastePasteProvider,
   pasteGuardDocumentSelector,
   pasteDocumentSelector,
-  pasteProviderMetadata
+  pasteProviderMetadata,
+  dropProviderMetadata
 } from './paste-provider'
 import {
   GitPasteService,
@@ -52,6 +53,11 @@ export function activate(context: vscode.ExtensionContext): void {
       pasteGuardDocumentSelector,
       pasteGuard,
       pasteProviderMetadata
+    ),
+    vscode.languages.registerDocumentDropEditProvider(
+      pasteDocumentSelector,
+      pasteProvider,
+      dropProviderMetadata
     ),
     vscode.commands.registerCommand(
       'gitpaste.uploadImageFromClipboard',
