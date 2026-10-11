@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Keep **Delete GitPaste Image** available in Markdown and MDX editor context menus even when the cursor context has not finished updating. The command still validates the image syntax, repository mapping, and supported extension before deleting anything.
+- Treat the end of a Markdown image and the end of its URL as outside the image, preventing boundary-position misclassification.
+
 ## 0.6.1
 
 ### Improved
@@ -16,7 +23,7 @@
 
 ### Improved
 
-- The delete command is shown only when the current URL maps to the configured GitHub repository, branch, public URL template, and image directory, with a supported image extension.
+- The delete command only operates when the current URL maps to the configured GitHub repository, branch, public URL template, and image directory, with a supported image extension.
 - Ordinary text pastes and existing Markdown/MDX upload and replacement workflows remain unchanged.
 
 ### Safety and Compatibility

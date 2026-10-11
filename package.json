@@ -65,7 +65,6 @@
       {
         "command": "gitpaste.deleteImageAtCursor",
         "title": "GitPaste: Delete GitPaste Image",
-        "enablement": "gitpaste.canDeleteImage",
         "icon": "$(trash)"
       },
       {
@@ -119,8 +118,14 @@
         },
         {
           "command": "gitpaste.deleteImageAtCursor",
-          "when": "(editorLangId == markdown || editorLangId == mdx) && gitpaste.canDeleteImage",
+          "when": "editorLangId == markdown || editorLangId == mdx",
           "group": "9_cutcopypaste@7"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gitpaste.deleteImageAtCursor",
+          "when": "editorLangId == markdown || editorLangId == mdx"
         }
       ]
     },

@@ -8,6 +8,7 @@ interface Manifest {
     commands: Array<{ command: string; title: string; category?: string }>
     menus: {
       'editor/context': Array<{ command: string; when?: string }>
+      commandPalette: Array<{ command: string; when?: string }>
     }
     configuration: {
       properties: Record<
@@ -67,9 +68,16 @@ test('keeps existing editor context commands independent from deletion', () => {
     whenFor('gitpaste.replaceImageAtCursor'),
     'editorLangId == markdown || editorLangId == mdx'
   )
-  assert.match(
-    whenFor('gitpaste.deleteImageAtCursor') || '',
-    /gitpaste\.canDeleteImage/
+  assert.equal(
+    whenFor('gitpaste.deleteImageAtCursor'),
+    'editorLangId == markdown || editorLangId == mdx'
+  )
+  const commandPaletteWhen = manifest.contributes.menus.commandPalette.find(
+    (entry) => entry.command === 'gitpaste.deleteImageAtCursor'
+  )?.when
+  assert.equal(
+    commandPaletteWhen,
+    'editorLangId == markdown || editorLangId == mdx'
   )
 })
 

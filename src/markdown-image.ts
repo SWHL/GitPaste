@@ -15,7 +15,7 @@ export function findMarkdownImageUrlAtOffset(
   offset: number
 ): MarkdownImage | undefined {
   const image = findParsedMarkdownImageAtOffset(text, offset)
-  if (!image || offset < image.urlStart || offset > image.urlEnd) {
+  if (!image || offset < image.urlStart || offset >= image.urlEnd) {
     return undefined
   }
   return publicImage(image)
@@ -36,7 +36,7 @@ function findParsedMarkdownImageAtOffset(
   let start = text.lastIndexOf('![', offset)
   while (start >= 0) {
     const image = parseMarkdownImage(text, start)
-    if (image && offset >= image.start && offset <= image.end) return image
+    if (image && offset >= image.start && offset < image.end) return image
     if (start === 0) break
     start = text.lastIndexOf('![', start - 1)
   }

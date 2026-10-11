@@ -32,7 +32,7 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 | 选择图片上传 | `Ctrl+Alt+E` | `Cmd+Alt+E` |
 | 从路径或 URL 上传 | `Ctrl+Alt+O` | `Cmd+Alt+O` |
 | 替换光标处图片 | 命令面板或编辑器右键菜单；Web 版随后粘贴替换图片 | 命令面板或编辑器右键菜单；Web 版随后粘贴替换图片 |
-| 删除 GitPaste 图片 | 将光标放在图片 URL 上，然后使用编辑器右键菜单或命令面板 | 将光标放在图片 URL 上，然后使用编辑器右键菜单或命令面板 |
+| 删除 GitPaste 图片 | 将光标放在图片语法内，然后使用编辑器右键菜单或命令面板 | 将光标放在图片语法内，然后使用编辑器右键菜单或命令面板 |
 | 检查配置 | 命令面板 | 命令面板 |
 
 需要复制图片本身，而不是图片地址。Web 版中，`Ctrl/Cmd+V` 遇到图片时会上传，遇到文字或其他内容时仍执行普通粘贴。由于浏览器只会通过真实粘贴事件提供图片二进制数据，GitPaste 的专用剪贴板快捷键仅用于桌面版。
@@ -88,7 +88,7 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 
 ## 删除图片
 
-将光标放在 GitPaste 生成的行内 Markdown 图片 URL 上，然后从编辑器右键菜单或命令面板选择 **GitPaste: Delete GitPaste Image**。GitPaste 只会删除能够明确映射到当前仓库、分支、公开 URL 模板和图片目录的 URL，并且要求路径扩展名是受支持的图片格式。确认后会在 GitHub 创建删除 commit，同时从当前文档移除完整的 Markdown 图片。无关 URL 和引用式图片不会执行删除。
+在 Markdown 或 MDX 编辑器中，从编辑器右键菜单或命令面板选择 **GitPaste: Delete GitPaste Image**，并将光标放在 GitPaste 生成的行内 Markdown 图片语法内。GitPaste 只会删除能够明确映射到当前仓库、分支、公开 URL 模板和图片目录的 URL，并且要求路径扩展名是受支持的图片格式。确认后会在 GitHub 创建删除 commit，同时从当前文档移除完整的 Markdown 图片。无关 URL 和引用式图片会被拒绝删除。
 
 ## 配置检查
 

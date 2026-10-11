@@ -12,10 +12,7 @@ import {
   imageFileFilters,
   isSupportedImageName
 } from './service'
-import {
-  findMarkdownImageAtOffset,
-  findMarkdownImageUrlAtOffset
-} from './markdown-image'
+import { findMarkdownImageAtOffset } from './markdown-image'
 import { TrackedDocumentRange } from './tracked-document-range'
 import type { ImageInput, UploadedImage } from './types'
 
@@ -36,8 +33,7 @@ export function activate(context: vscode.ExtensionContext): void {
       runCommand(() => finishImageReplacement(service, oldUrl, uploaded)),
     inserted: async (uploaded) => {
       await vscode.window.showInformationMessage(
-        `GitPaste: uploaded ${uploaded.length} image${
-          uploaded.length === 1 ? '' : 's'
+        `GitPaste: uploaded ${uploaded.length} image${uploaded.length === 1 ? '' : 's'
         }.`
       )
     },
@@ -111,64 +107,9 @@ export function activate(context: vscode.ExtensionContext): void {
       })
     )
   )
-  registerDeleteImageContext(context, service)
 }
 
-function registerDeleteImageContext(
-  context: vscode.ExtensionContext,
-  service: GitPasteService
-): void {
-  let requestId = 0
-  const update = (editor = vscode.window.activeTextEditor): void => {
-    const currentRequest = ++requestId
-    const image = editor && isMarkdownDocument(editor.document)
-      ? findMarkdownImageUrlAtOffset(
-          editor.document.lineAt(editor.selection.active.line).text,
-          editor.selection.active.character
-        )
-      : undefined
-    if (!image) {
-      void vscode.commands.executeCommand(
-        'setContext',
-        'gitpaste.canDeleteImage',
-        false
-      )
-      return
-    }
-    void service
-      .remotePathForUrl(image.url)
-      .then((remotePath) => {
-        if (currentRequest !== requestId) return
-        void vscode.commands.executeCommand(
-          'setContext',
-          'gitpaste.canDeleteImage',
-          Boolean(remotePath && isSupportedImageName(remotePath))
-        )
-      })
-      .catch(() => {
-        if (currentRequest !== requestId) return
-        void vscode.commands.executeCommand(
-          'setContext',
-          'gitpaste.canDeleteImage',
-          false
-        )
-      })
-  }
-
-  context.subscriptions.push(
-    vscode.window.onDidChangeTextEditorSelection((event) => update(event.textEditor)),
-    vscode.window.onDidChangeActiveTextEditor((editor) => update(editor)),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document === vscode.window.activeTextEditor?.document) update()
-    }),
-    vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('gitpaste')) update()
-    })
-  )
-  update()
-}
-
-export function deactivate(): void {}
+export function deactivate(): void { }
 
 async function uploadFromClipboard(
   pasteProvider: GitPastePasteProvider
@@ -243,8 +184,7 @@ async function uploadAndInsert(
     )
     await insertUploadedWithCleanup(service, target, uploaded)
     await vscode.window.showInformationMessage(
-      `GitPaste: uploaded ${uploaded.length} image${
-        uploaded.length === 1 ? '' : 's'
+      `GitPaste: uploaded ${uploaded.length} image${uploaded.length === 1 ? '' : 's'
       }.`
     )
   } finally {
@@ -336,13 +276,13 @@ async function deleteImageAtCursor(service: GitPasteService): Promise<void> {
   }
 
   const document = editor.document
-  const image = findMarkdownImageUrlAtOffset(
+  const image = findMarkdownImageAtOffset(
     document.getText(),
     document.offsetAt(editor.selection.active)
   )
   if (!image) {
     throw new Error(
-      'Place the cursor on the URL of an inline Markdown image before deleting it.'
+      'Place the cursor inside an inline Markdown image before deleting it.'
     )
   }
 
