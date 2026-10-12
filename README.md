@@ -23,6 +23,7 @@ The first release supports GitHub only. The upload layer is provider-based so mo
 - Authenticate with VS Code's built-in GitHub sign-in or a fine-grained personal access token.
 - Customize the repository, branch, directory, filename, public URL, commit message, and inserted text.
 - Handle filename conflicts by renaming, overwriting, or asking each time.
+- Automatically retry transient GitHub and network failures with request timeouts, cancellation, and rate-limit awareness.
 - Retry or skip failed batch items and clean up files from an incomplete upload.
 - Use the same extension bundle in browser and desktop extension hosts.
 
@@ -79,6 +80,8 @@ Credentials are never written to either settings scope. GitHub sessions are mana
 The default filename template includes `${random}`, so conflicts are uncommon unless the template is customized.
 
 ## Upload Failure Recovery
+
+GitPaste automatically retries temporary network failures and GitHub responses with status `408`, `429`, `500`, `502`, `503`, or `504` using bounded exponential backoff. It honors GitHub's `Retry-After` header, applies a timeout to every GitHub request, and reports the remaining API quota and reset time when GitHub provides them. Permission failures, exhausted retries, and other permanent errors continue to the manual recovery flow below.
 
 If one item in a multi-image upload fails, GitPaste shows the error and offers:
 

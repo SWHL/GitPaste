@@ -23,6 +23,8 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 细粒度 PAT 的 **Resource owner** 必须是目标仓库所有者，**Repository access** 必须包含目标仓库。组织仓库还可能要求管理员批准令牌或完成 SSO 授权。
 选择 PAT 后，GitPaste 不会在令牌暂时不可用时静默切换到 VS Code GitHub 登录；它会要求重新输入 PAT。
 
+GitPaste 会为 GitHub 上传、查询、删除和配置检查统一设置请求超时，并自动重试临时网络故障以及 `408`、`429`、`500`、`502`、`503`、`504` 响应。请求会遵循 GitHub 返回的 `Retry-After`，错误信息也会在可用时显示剩余 API 配额和重置时间。
+
 ## 快捷键
 
 | 功能 | Windows/Linux | macOS |
@@ -63,6 +65,8 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 默认文件名模板包含 `${random}`，所以通常不会冲突；自定义模板移除随机值后，这项设置会更重要。
 
 ## 上传失败恢复
+
+临时网络错误和 GitHub 限流或服务异常会先通过有限次数的指数退避自动恢复。每个 GitHub 请求都支持超时和取消；权限不足、自动重试耗尽以及其他不可恢复错误才会进入下面的手动处理流程。
 
 批量上传中某一项失败时，GitPaste 会显示具体错误并提供：
 

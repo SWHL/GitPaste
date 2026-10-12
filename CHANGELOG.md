@@ -1,16 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 ### Added
 
 - Added optional SHA-256 content-addressed upload paths with duplicate image reuse. The default timestamp naming strategy remains unchanged.
 - Drag and drop one or more image files into Markdown or MDX editors. Images are inserted at the drop position and use the existing upload progress, cancellation, and cleanup flow.
 
+### Improved
+
+- GitHub uploads, file lookups, deletions, and configuration checks now share a timeout-aware request layer with cancellation support.
+- Network failures and transient GitHub responses (`408`, `429`, `500`, `502`, `503`, and `504`) are retried automatically with bounded exponential backoff. GitPaste also honors `Retry-After` and GitHub's rate-limit headers.
+- GitHub errors now distinguish request timeouts and network failures, preserve actionable permission guidance, and include the remaining API quota and reset time when available.
+
 ### Fixed
 
 - Keep **Delete GitPaste Image** available in Markdown and MDX editor context menus even when the cursor context has not finished updating. The command still validates the image syntax, repository mapping, and supported extension before deleting anything.
 - Treat the end of a Markdown image and the end of its URL as outside the image, preventing boundary-position misclassification.
+
+### Tests
+
+- Added coverage for automatic recovery during uploads and file lookups, plus rate-limited deletion and API quota reporting.
 
 ## 0.6.1
 

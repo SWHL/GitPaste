@@ -155,9 +155,95 @@ test('configuration verification checks write permission and the target branch',
   assert.match(urls[1], /branches\/docs%2Fimages$/)
 })
 
-function jsonResponse(value: unknown, status = 200): Response {
+test('retries an upload after a transient GitHub server error', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return calls === 1
+      ? jsonResponse({ message: 'Service unavailable' }, 503)
+      : jsonResponse({ content: { path: 'images/photo.png', sha: 'sha' } })
+  }
+  try {
+    const result = await new GitHubProvider('secret', {
+      retryBaseDelayMs: 0
+    }).upload({
+      data: new Uint8Array([1]),
+      fileName: 'photo.png',
+      remotePath: 'images/photo.png',
+      commitMessage: 'Upload ${uploadedName}',
+      target: { repository: 'octocat/images', branch: 'main' }
+    })
+    assert.equal(result.sha, 'sha')
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retries a file lookup after a network failure', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    if (calls === 1) throw new TypeError('Failed to fetch')
+    return jsonResponse({ path: 'images/photo.png', sha: 'sha' })
+  }
+  try {
+    const file = await new GitHubProvider('secret', {
+      retryBaseDelayMs: 0
+    }).getFile(
+      { repository: 'octocat/images', branch: 'main' },
+      'images/photo.png'
+    )
+    assert.equal(file?.sha, 'sha')
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('retries a rate-limited delete and reports the remaining quota', async () => {
+  const originalFetch = globalThis.fetch
+  let calls = 0
+  globalThis.fetch = async () => {
+    calls += 1
+    return jsonResponse(
+      { message: 'API rate limit exceeded' },
+      429,
+      {
+        'Retry-After': '0',
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': '1893456000'
+      }
+    )
+  }
+  try {
+    await assert.rejects(
+      new GitHubProvider('secret', {
+        maxRetries: 1,
+        retryBaseDelayMs: 0
+      }).delete({
+        remotePath: 'images/photo.png',
+        sha: 'sha',
+        commitMessage: 'Delete photo.png',
+        target: { repository: 'octocat/images', branch: 'main' }
+      }),
+      /API rate limit remaining: 0; resets at/
+    )
+    assert.equal(calls, 2)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+function jsonResponse(
+  value: unknown,
+  status = 200,
+  headers: Record<string, string> = {}
+): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json', ...headers }
   })
 }
