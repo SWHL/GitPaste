@@ -42,6 +42,35 @@ export function extensionForMime(mimeType?: string): string {
   return MIME_EXTENSIONS[mimeType.toLowerCase()] || ''
 }
 
+export async function sha256Hex(data: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    data as any
+  )
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+}
+
+export function formatHashRemotePath(
+  basePath: string,
+  hash: string,
+  originalName: string,
+  mimeType?: string
+): string {
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    throw new Error('The SHA-256 hash must be a 64-character hexadecimal string.')
+  }
+  const original = splitFileName(originalName)
+  const extension = extensionForMime(mimeType) || original.extName || '.png'
+  return joinRepoPath(
+    basePath,
+    hash.slice(0, 2),
+    hash.slice(2, 4),
+    `${hash}${extension}`
+  )
+}
+
 export function formatUploadFileName(
   template: string,
   originalName: string,

@@ -10,6 +10,7 @@ const validConfig: GitPasteConfig = {
   publicUrl: '',
   commitMessage: 'Upload ${uploadedName} with GitPaste',
   conflictStrategy: 'rename',
+  fileNameStrategy: 'timestamp',
   fileNameFormat: '${name}-${random}${extName}',
   outputFormat: '![${uploadedName}](${url})',
   includeImageName: true,

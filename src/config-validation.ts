@@ -3,6 +3,7 @@ import { buildPublicUrl } from './public-url'
 import type { GitPasteConfig } from './types'
 
 const CONFLICT_STRATEGIES = ['rename', 'overwrite', 'prompt'] as const
+const FILE_NAME_STRATEGIES = ['timestamp', 'hash'] as const
 
 export function validateConfig(config: GitPasteConfig): void {
   normalizeRepoPath(config.path)
@@ -10,6 +11,9 @@ export function validateConfig(config: GitPasteConfig): void {
     throw new Error(
       'The filename conflict strategy must be rename, overwrite, or prompt.'
     )
+  }
+  if (!FILE_NAME_STRATEGIES.includes(config.fileNameStrategy)) {
+    throw new Error('The filename strategy must be timestamp or hash.')
   }
   if (!config.commitMessage.trim()) {
     throw new Error('The GitHub commit message cannot be empty.')

@@ -146,6 +146,7 @@ A custom public URL must be HTTP(S) and include `${path}`; the output template m
 | `gitpaste.github.commitMessage` | `"Upload ${uploadedName} with GitPaste"` | Non-empty Git commit message template. Supports `${uploadedName}`. |
 | `gitpaste.github.conflictStrategy` | `"rename"` | One of `rename`, `overwrite`, or `prompt`; see **Filename Conflicts**. |
 | `gitpaste.fileNameFormat` | Date, time, and random suffix | Remote filename template. Missing image extensions are added from the source name or MIME type. |
+| `gitpaste.fileNameStrategy` | `"timestamp"` | Use the existing timestamp flow or `"hash"` for SHA-256 content-addressed paths and duplicate reuse. |
 | `gitpaste.outputFormat` | `![${uploadedName}](${url})` | Text inserted into the editor. Must include `${url}` and may generate Markdown or HTML. |
 | `gitpaste.includeImageName` | `true` | When `false`, `${uploadedName}` becomes empty; the default output becomes `![](${url})`. |
 | `gitpaste.maxFileSizeMb` | `20` | Client-side size limit for each image; allowed range is 1-100 MB. GitHub may impose additional limits. |

@@ -48,6 +48,7 @@ export interface UploadProvider<TTarget> {
 }
 
 export type ConflictStrategy = 'rename' | 'overwrite' | 'prompt'
+export type FileNameStrategy = 'timestamp' | 'hash'
 
 export interface GitPasteConfig {
   readonly repository: string
@@ -56,6 +57,7 @@ export interface GitPasteConfig {
   readonly publicUrl: string
   readonly commitMessage: string
   readonly conflictStrategy: ConflictStrategy
+  readonly fileNameStrategy: FileNameStrategy
   readonly fileNameFormat: string
   readonly outputFormat: string
   readonly includeImageName: boolean

@@ -130,6 +130,7 @@ PAT 会保存在 VS Code `SecretStorage` 中，不会以明文配置写入 `sett
 | `gitpaste.github.commitMessage` | `"Upload ${uploadedName} with GitPaste"` | 非空的 Git commit 信息模板，支持 `${uploadedName}`。|
 | `gitpaste.github.conflictStrategy` | `"rename"` | 可选 `rename`、`overwrite`、`prompt`，详见“同名文件处理”。|
 | `gitpaste.fileNameFormat` | 日期、时间和随机后缀 | 远端文件名模板。未提供图片扩展名时，会根据源文件名或 MIME 类型自动补充。|
+| `gitpaste.fileNameStrategy` | `"timestamp"` | 使用现有时间戳命名，或使用 `"hash"` 按 SHA-256 内容路径命名并复用重复图片。|
 | `gitpaste.outputFormat` | `![${uploadedName}](${url})` | 插入编辑器的文本；必须包含 `${url}`，可以生成 Markdown 或 HTML。|
 | `gitpaste.includeImageName` | `true` | 设为 `false` 时 `${uploadedName}` 为空，默认输出变为 `![](${url})`。|
 | `gitpaste.maxFileSizeMb` | `20` | 每张图片的客户端大小限制，范围 1-100 MB；GitHub 还可能有额外限制。|

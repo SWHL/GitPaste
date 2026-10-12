@@ -3,11 +3,13 @@ import test from 'node:test'
 import {
   appendFileNameSuffix,
   encodeRepoPath,
+  formatHashRemotePath,
   formatUploadFileName,
   interpolate,
   joinRepoPath,
   normalizeRepoPath,
   sanitizeSegment,
+  sha256Hex,
   splitFileName
 } from '../src/naming'
 
@@ -43,6 +45,18 @@ test('adds an extension based on the mime type', () => {
     '12345678'
   )
   assert.equal(actual, 'pasted-image-12345678.webp')
+})
+
+test('builds a stable hash path and computes SHA-256', async () => {
+  const hash = await sha256Hex(new TextEncoder().encode('hello'))
+  assert.equal(
+    hash,
+    '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
+  )
+  assert.equal(
+    formatHashRemotePath('images', hash, 'Screenshot', 'image/png'),
+    `images/2c/f2/${hash}.png`
+  )
 })
 
 test('sanitizes unsafe path characters without discarding unicode', () => {

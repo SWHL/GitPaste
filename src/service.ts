@@ -1,10 +1,13 @@
 import * as vscode from 'vscode'
 import { Credentials } from './credentials'
 import {
+  formatHashRemotePath,
   formatUploadFileName,
+  encodeRepoPath,
   joinRepoPath,
   nameWithoutExtension,
   normalizeRepoPath,
+  sha256Hex,
   splitFileName
 } from './naming'
 import {
@@ -25,6 +28,7 @@ import type {
   GitHubTarget,
   ImageInput,
   ConflictStrategy,
+  FileNameStrategy,
   UploadedImage
 } from './types'
 
@@ -198,19 +202,54 @@ export class GitPasteService {
     image: ImageInput,
     documentName: string
   ): Promise<UploadedImage> {
+    const hashMode = config.fileNameStrategy === 'hash'
+    const hash = hashMode ? await sha256Hex(image.data) : undefined
     const fileName = formatUploadFileName(
       config.fileNameFormat,
       image.name,
       image.mimeType,
       documentName
     )
-    const requestedPath = joinRepoPath(config.path, fileName)
-    const destination = await resolveUploadDestination(
-      requestedPath,
-      config.conflictStrategy,
-      (remotePath) => provider.getFile(target, remotePath),
-      () => this.promptForConflict(requestedPath)
-    )
+    const requestedPath = hashMode
+      ? formatHashRemotePath(config.path, hash!, image.name, image.mimeType)
+      : joinRepoPath(config.path, fileName)
+    const existing = hashMode
+      ? await provider.getFile(target, requestedPath)
+      : undefined
+    if (hashMode && existing) {
+      const url = buildPublicUrl(
+        config.publicUrl,
+        target.repository,
+        target.branch,
+        existing.remotePath,
+        rawGitHubUrl(target.repository, target.branch, existing.remotePath)
+      )
+      const uploadedName = nameWithoutExtension(image.name)
+      this.output.appendLine(`Reused ${image.name}: ${url}`)
+      return {
+        originalName: uploadedName,
+        uploadedName,
+        remotePath: existing.remotePath,
+        sha: existing.sha,
+        created: false,
+        url,
+        output: formatOutput(
+          config.outputFormat,
+          uploadedName,
+          uploadedName,
+          url,
+          config.includeImageName
+        )
+      }
+    }
+    const destination = hashMode
+      ? { remotePath: requestedPath, created: true }
+      : await resolveUploadDestination(
+          requestedPath,
+          config.conflictStrategy,
+          (remotePath) => provider.getFile(target, remotePath),
+          () => this.promptForConflict(requestedPath)
+        )
     const remotePath = destination.remotePath
 
     const uploadedFileName = remotePath.split('/').pop() || fileName
@@ -232,7 +271,9 @@ export class GitPasteService {
       result.remotePath,
       result.downloadUrl
     )
-    const uploadedName = nameWithoutExtension(uploadedFileName)
+    const uploadedName = hashMode
+      ? nameWithoutExtension(image.name)
+      : nameWithoutExtension(uploadedFileName)
     this.output.appendLine(`Uploaded ${image.name}: ${url}`)
     return {
       originalName: nameWithoutExtension(image.name),
@@ -341,6 +382,10 @@ export class GitPasteService {
       fileNameFormat: settings.get<string>(
         'fileNameFormat',
         '${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}'
+      ),
+      fileNameStrategy: settings.get<FileNameStrategy>(
+        'fileNameStrategy',
+        'timestamp'
       ),
       outputFormat: settings.get<string>(
         'outputFormat',
@@ -490,6 +535,19 @@ function validateRepository(value: string): string | undefined {
   } catch (error) {
     return error instanceof Error ? error.message : String(error)
   }
+}
+
+function rawGitHubUrl(
+  repository: string,
+  branch: string,
+  remotePath: string
+): string {
+  const parsed = parseRepository(repository)
+  return `https://raw.githubusercontent.com/${encodeURIComponent(
+    parsed.owner
+  )}/${encodeURIComponent(parsed.repository)}/${encodeRepoPath(
+    branch
+  )}/${encodeRepoPath(remotePath)}`
 }
 
 function resolveWorkspaceUri(
