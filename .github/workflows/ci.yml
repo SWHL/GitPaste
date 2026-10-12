@@ -36,6 +36,22 @@ jobs:
       - name: Build VSIX
         run: npm run build
 
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          version="${TAG_NAME#v}"
+          awk -v version="$version" '
+            $0 == "## " version { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/N;/^\n[[:space:]]*$/D' > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG.md section found for ${TAG_NAME}" >&2
+            exit 1
+          fi
+
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,10 +62,14 @@ jobs:
             gh release upload "$TAG_NAME" gitpaste.vsix \
               --repo "$REPOSITORY" \
               --clobber
+            gh release edit "$TAG_NAME" \
+              --repo "$REPOSITORY" \
+              --title "GitPaste $TAG_NAME" \
+              --notes-file release-notes.md
           else
             gh release create "$TAG_NAME" gitpaste.vsix \
               --repo "$REPOSITORY" \
               --verify-tag \
               --title "GitPaste $TAG_NAME" \
-              --generate-notes
+              --notes-file release-notes.md
           fi
