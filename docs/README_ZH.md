@@ -179,11 +179,6 @@ GitPaste 是基于 MIT 许可证项目
 | [vs-picgo](https://github.com/PicGo/vs-picgo) | 基于 PicGo 的 VS Code 集成 | 桌面 VS Code 与 PicGo/Node.js 组件 | 使用 PicGo 上传器和配置 |
 | GitPaste | 面向编辑器图片粘贴的 VS Code Web Extension | 同一浏览器兼容包运行于 Web 和桌面 VS Code | 当前版本直接使用 GitHub Contents API |
 
-GitPaste 不加载 PicGo 插件，也不读取 PicGo 或 vs-picgo 配置。它使用
-`gitpaste.*` 设置，将凭据保存在 VS Code `SecretStorage` 中，并直接调用 GitHub
-API 上传。已有的 PicGo 或 vs-picgo 设置需要在 GitPaste 中重新配置。
+GitPaste 不加载 PicGo 插件，也不读取 PicGo 或 vs-picgo 配置。它使用 `gitpaste.*` 设置，将凭据保存在 VS Code `SecretStorage` 中，并直接调用 GitHub API 上传。已有的 PicGo 或 vs-picgo 设置需要在 GitPaste 中重新配置。
 
-凭据处理方式是两者一个重要且有意为之的区别。vs-picgo 的 GitHub 上传器要求
-在配置文件中填写 token，因此 token 会成为明文配置；GitPaste 则始终将 token
-排除在 `gitpaste.*` 设置之外。使用内置 GitHub 登录时，认证由 VS Code 管理；
-使用 PAT 时，密钥保存在 `SecretStorage` 中，`settings.json` 只记录所选择的认证方式。
+凭据处理方式是两者一个重要且有意为之的区别。vs-picgo 的 GitHub 上传器要求在配置文件中填写 token，因此 token 会成为明文配置；GitPaste 则始终将 token 排除在 `gitpaste.*` 设置之外。使用内置 GitHub 登录时，认证由 VS Code 管理；使用 PAT 时，密钥保存在 `SecretStorage` 中，`settings.json` 只记录所选择的认证方式。

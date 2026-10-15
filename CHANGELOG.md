@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+
+- Fixed desktop clipboard image uploads on macOS when VS Code exposes clipboard images with the `files` MIME type.
+- Kept explicit clipboard upload requests available until the paste provider consumes them, covering delayed macOS paste dispatch.
+
+### Tests
+
+- Added regression coverage for desktop shortcut declarations and delayed explicit paste requests.
+
 ## 0.7.0
 
 ### Added

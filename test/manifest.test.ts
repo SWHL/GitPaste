@@ -5,6 +5,12 @@ import test from 'node:test'
 interface Manifest {
   activationEvents: string[]
   contributes: {
+    keybindings: Array<{
+      command: string
+      key: string
+      mac?: string
+      when?: string
+    }>
     commands: Array<{ command: string; title: string; category?: string }>
     menus: {
       'editor/context': Array<{ command: string; when?: string }>
@@ -41,6 +47,25 @@ test('registers new commands without removing existing upload commands', () => {
       manifest.activationEvents.includes(`onCommand:${command}`),
       `${command} is missing its activation event`
     )
+  }
+})
+
+test('declares usable desktop shortcuts for every upload command', () => {
+  const keybindings = manifest.contributes.keybindings
+  for (const [command, key, mac] of [
+    ['gitpaste.uploadImageFromClipboard', 'ctrl+alt+u', 'cmd+alt+u'],
+    ['gitpaste.uploadImageFromExplorer', 'ctrl+alt+e', 'cmd+alt+e'],
+    ['gitpaste.uploadImageFromInputBox', 'ctrl+alt+o', 'cmd+alt+o']
+  ]) {
+    const binding = keybindings.find((entry) => entry.command === command)
+    assert.deepEqual(binding, {
+      command,
+      key,
+      mac,
+      when: command === 'gitpaste.uploadImageFromClipboard'
+        ? 'editorTextFocus && !isWeb'
+        : 'editorTextFocus'
+    })
   }
 })
 
