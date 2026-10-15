@@ -1,8 +1,12 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "lib": ["ES2022"],
-    "types": ["node"],
+    "lib": [
+      "ES2022"
+    ],
+    "types": [
+      "node"
+    ],
     "outDir": ".test-dist",
     "sourceMap": false
   },
@@ -15,6 +19,7 @@
     "src/providers/github.ts",
     "src/public-url.ts",
     "src/types.ts",
+    "src/explicit-paste-request.ts",
     "test/*.test.ts"
   ]
 }

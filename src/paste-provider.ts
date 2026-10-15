@@ -2,6 +2,7 @@ import * as vscode from 'vscode'
 import { GitPasteService, isSupportedImageName } from './service'
 import type { MarkdownImage } from './markdown-image'
 import { TrackedDocumentRange } from './tracked-document-range'
+import { ExplicitPasteRequestTracker } from './explicit-paste-request'
 import type { ImageInput, UploadedImage } from './types'
 
 const pasteKind = vscode.DocumentDropOrPasteEditKind.Empty.append(
@@ -17,6 +18,7 @@ const dropKind = vscode.DocumentDropOrPasteEditKind.Empty.append(
 )
 const DEFAULT_REPLACEMENT_TIMEOUT_MS = 60_000
 const DEFAULT_EDIT_APPLICATION_TIMEOUT_MS = 10_000
+const EXPLICIT_PASTE_REQUEST_TIMEOUT_MS = 5_000
 
 export const pasteDocumentSelector: vscode.DocumentSelector = [
   'markdown',
@@ -85,7 +87,8 @@ interface ReplacementCallbacks {
 
 export class GitPastePasteProvider
   implements vscode.DocumentPasteEditProvider, vscode.DocumentDropEditProvider {
-  private explicitPasteRequests = 0
+  private readonly explicitPasteRequestTracker =
+    new ExplicitPasteRequestTracker(EXPLICIT_PASTE_REQUEST_TIMEOUT_MS)
   private pendingReplacement: PendingReplacement | undefined
   private pendingReplacementTimeout: ReturnType<typeof setTimeout> | undefined
 
@@ -128,11 +131,14 @@ export class GitPastePasteProvider
   }
 
   async pasteFromClipboard(): Promise<void> {
-    this.explicitPasteRequests += 1
+    this.explicitPasteRequestTracker.request()
     try {
       await vscode.commands.executeCommand('editor.action.clipboardPasteAction')
     } finally {
-      this.explicitPasteRequests -= 1
+      // VS Code can dispatch the paste provider after the clipboard command
+      // resolves on macOS. Keep the request alive until the provider consumes
+      // it instead of clearing it in the command's finally block.
+      this.explicitPasteRequestTracker.arm()
     }
   }
 
@@ -145,7 +151,11 @@ export class GitPastePasteProvider
   ): Promise<vscode.DocumentPasteEdit[] | undefined> {
     // A file drop can also be surfaced as a paste request by VS Code. Leave
     // those transfers to the drop provider so one file is not uploaded twice.
-    if (isFileDropTransfer(dataTransfer)) return undefined
+    // An explicit desktop upload command is different: macOS may expose a
+    // clipboard image with the `files` MIME type, so it must still be handled
+    // by this provider rather than falling back to VS Code's text paste.
+    const explicitPaste = this.explicitPasteRequestTracker.consume()
+    if (isFileDropTransfer(dataTransfer) && !explicitPaste) return undefined
     const replacementState = this.takePendingReplacement(document, ranges)
     if (replacementState.kind === 'invalid') return undefined
     const replacement =
@@ -157,7 +167,6 @@ export class GitPastePasteProvider
       vscode.workspace
         .getConfiguration('gitpaste')
         .get<boolean>('uploadOnPaste', true)
-    const explicitPaste = this.explicitPasteRequests > 0
     if (
       (!replacement && !uploadOnPaste && !explicitPaste) ||
       token.isCancellationRequested
