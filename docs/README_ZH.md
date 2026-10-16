@@ -166,6 +166,18 @@ GitPaste 会为 GitHub 上传、查询、删除和配置检查统一设置请求
 
 访问任意外部 HTTP 链接会受到源服务器浏览器跨域（CORS）策略限制。工作区文件与粘贴的图片不受此限制。
 
+## 发布流程
+
+项目使用版本 tag 发布。推送符合 `vX.Y.Z` 格式的 tag（例如 `v0.8.0`）后，
+`.github/workflows/ci.yml` 会自动执行发布流程：
+
+1. CI 从 tag 读取版本号，只在临时工作区更新 `package.json`，然后安装依赖并构建 VSIX。
+2. CI 不会修改或推送仓库中的 `package.json`、`package-lock.json` 或 `CHANGELOG.md`；最终 VSIX 版本号以 tag 为准。
+3. 测试通过并完成构建后，CI 会创建 GitHub Release，并由 GitHub 自动生成发布说明。
+
+该 workflow 需要仓库 GitHub Actions token 具备 `Contents: Write` 权限，用于创建
+GitHub Release。仓库中的版本文件可能低于最新发布版本，这是此发布策略的预期行为。
+
 ## 与 PicGo, vs-picgo 的关系与区别
 
 GitPaste 是基于 MIT 许可证项目

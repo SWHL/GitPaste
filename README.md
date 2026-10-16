@@ -217,6 +217,23 @@ npm run package
 
 `npm run package` emits `dist/web/extension.js`, a single Web Worker bundle. VS Code desktop can run the same browser entry point.
 
+### Release automation
+
+Releases are driven by version tags. Push a tag matching `vX.Y.Z` (for example,
+`v0.8.0`) to start the release workflow in `.github/workflows/ci.yml`:
+
+1. The workflow reads the version from the tag and applies it only in the CI
+   workspace before installing dependencies and building the VSIX.
+2. The repository's `package.json`, `package-lock.json`, and `CHANGELOG.md` are
+   not modified or pushed by CI. The tag is the source of truth for the final
+   VSIX version.
+3. Tests run, the VSIX is built, and a GitHub Release is created with GitHub's
+   automatically generated release notes.
+
+The workflow requires the repository's GitHub Actions token to have `Contents:
+Write` permission so it can create the GitHub Release. The version shown in the
+repository files may lag behind the latest release by design.
+
 ## License
 
 MIT. See the `LICENSE` file for GitPaste and upstream copyright and license terms.
