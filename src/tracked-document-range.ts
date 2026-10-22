@@ -11,11 +11,11 @@ export class TrackedDocumentRange implements vscode.Disposable {
 
   constructor(
     readonly document: vscode.TextDocument,
-    range: vscode.Range
+    range: vscode.Range,
   ) {
     this.offsets = {
       start: document.offsetAt(range.start),
-      end: document.offsetAt(range.end)
+      end: document.offsetAt(range.end),
     }
     this.subscriptions = [
       vscode.workspace.onDidChangeTextDocument((event) => {
@@ -29,7 +29,7 @@ export class TrackedDocumentRange implements vscode.Disposable {
       }),
       vscode.workspace.onDidCloseTextDocument((closed) => {
         if (closed === this.document) this.invalidate()
-      })
+      }),
     ]
   }
 
@@ -42,7 +42,7 @@ export class TrackedDocumentRange implements vscode.Disposable {
     return this.tracking && offsets && !this.document.isClosed
       ? new vscode.Range(
           this.document.positionAt(offsets.start),
-          this.document.positionAt(offsets.end)
+          this.document.positionAt(offsets.end),
         )
       : undefined
   }

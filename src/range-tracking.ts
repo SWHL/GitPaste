@@ -11,7 +11,7 @@ export interface OffsetChange {
 
 export function updateOffsetRange(
   range: OffsetRange,
-  changes: readonly OffsetChange[]
+  changes: readonly OffsetChange[],
 ): OffsetRange | undefined {
   let offsetDelta = 0
 
@@ -31,6 +31,6 @@ export function updateOffsetRange(
 
   return {
     start: range.start + offsetDelta,
-    end: range.end + offsetDelta
+    end: range.end + offsetDelta,
   }
 }

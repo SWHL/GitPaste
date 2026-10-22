@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- Added a shared `src/util.ts` module with tested helpers (`errorMessage`, `formatBytes`, `toBase64`, `pathBaseName`, `rawGitHubUrl`, `dedupKey`, `contentHash`, `mapWithConcurrency`, `preflightContentLength`), removing duplicated logic across the extension, service, paste provider, and command entry points.
+- Added ESLint (flat config), Prettier, and EditorConfig plus `lint`, `format`, and `format:check` scripts; the CI pipeline now runs a `lint` step.
+- Added a `rawGitHubUrl` builder in `public-url.ts` as the single source for `raw.githubusercontent.com` URLs.
+- Added `HEAD`-based size preflight for URL uploads: oversized images are rejected before the full body is downloaded, with a `GET` fallback validation.
+- Split `getConfig` into a pure `readConfig()` and an interactive `ensureRepository()`.
+
+### Improved
+
+- Rewrote `toBase64` to accumulate chunks in an array and join once, removing the `String.fromCharCode(...)` spread that could overflow the argument limit on large files and the O(n²) string concatenation.
+- Replaced the drag-and-paste deduplication key (`Array.from(image.data).join(',')`, which serialized the entire image) with file length + name + FNV-1a content hash.
+- Multi-image uploads now run with bounded concurrency (3 at a time) instead of strictly sequentially, while preserving per-image retry, skip, cancellation, and cleanup.
+- `formatBytes` now adapts between B, KB, MB, and GB instead of always reporting megabytes.
+- Personal access tokens are now validated before being stored: `setToken`, `configure`, and the `getToken` PAT fallback all verify the token first and persist it only on success.
+
+### Fixed
+
+- Concurrency uploads now return results in input order so multi-image Markdown links are inserted into the correct placeholders.
+- `preflightContentLength` treats a missing `content-length` header as unknown instead of misreading `Number(null)` (`0`) as a valid size.
+- The SHA-256 digest call in `naming.ts` now uses a precise `BufferSource` assertion instead of `any`.
+- The test TypeScript configuration now includes the `WebWorker` lib so web globals used by source modules type-check under `tsc -p tsconfig.test.json`.
+- The CI web integration tests no longer block releases: they run as a separate `continue-on-error` job, and the pinned VS Code commit is documented inline.
+
+### Tests
+
+- Added `test/util.test.ts` covering every shared helper, including a large-payload `toBase64` round-trip, `formatBytes` unit boundaries, `dedupKey`, and `mapWithConcurrency` ordering, limit, and error propagation.
+- Added `rawGitHubUrl` builder coverage in `test/public-url.test.ts`.
+
 ## 0.7.1
 
 ### Fixed

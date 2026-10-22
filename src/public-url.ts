@@ -11,12 +11,26 @@ export function parseRepository(repository: string): {
   return { owner: match[1], repository: match[2] }
 }
 
+/** Builds a `raw.githubusercontent.com` URL for a committed file. */
+export function rawGitHubUrl(
+  repository: string,
+  branch: string,
+  remotePath: string,
+): string {
+  const parsed = parseRepository(repository)
+  return `https://raw.githubusercontent.com/${encodeURIComponent(
+    parsed.owner,
+  )}/${encodeURIComponent(parsed.repository)}/${encodeRepoPath(
+    branch,
+  )}/${encodeRepoPath(remotePath)}`
+}
+
 export function buildPublicUrl(
   template: string,
   repository: string,
   branch: string,
   remotePath: string,
-  fallbackUrl?: string
+  fallbackUrl?: string,
 ): string {
   if (!template.trim()) {
     if (!fallbackUrl) {
@@ -30,7 +44,7 @@ export function buildPublicUrl(
     owner: repo.owner,
     repository: repo.repository,
     branch,
-    path: encodeRepoPath(remotePath)
+    path: encodeRepoPath(remotePath),
   })
 }
 
@@ -39,12 +53,12 @@ export function formatOutput(
   uploadedName: string,
   originalName: string,
   url: string,
-  includeImageName = true
+  includeImageName = true,
 ): string {
   return interpolate(template, {
     uploadedName: includeImageName ? uploadedName : '',
     originalName,
-    url
+    url,
   })
 }
 
@@ -52,7 +66,7 @@ export function remotePathFromPublicUrl(
   template: string,
   repository: string,
   branch: string,
-  publicUrl: string
+  publicUrl: string,
 ): string | undefined {
   const marker = '__GITPASTE_REMOTE_PATH__'
   let rendered: string
@@ -60,10 +74,7 @@ export function remotePathFromPublicUrl(
     if (!template.includes('${path}')) return undefined
     rendered = buildPublicUrl(template, repository, branch, marker)
   } else {
-    const repo = parseRepository(repository)
-    rendered = `https://raw.githubusercontent.com/${encodeURIComponent(
-      repo.owner
-    )}/${encodeURIComponent(repo.repository)}/${encodeRepoPath(branch)}/${marker}`
+    rendered = rawGitHubUrl(repository, branch, marker)
   }
 
   const markerIndex = rendered.indexOf(marker)
@@ -74,7 +85,7 @@ export function remotePathFromPublicUrl(
   }
   const encodedPath = publicUrl.slice(
     prefix.length,
-    suffix ? -suffix.length : undefined
+    suffix ? -suffix.length : undefined,
   )
   if (!encodedPath) return undefined
   try {

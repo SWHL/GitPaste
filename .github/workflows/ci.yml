@@ -27,11 +27,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
       - name: Run unit tests
         run: npm test
-
-      - name: Run Web integration tests
-        run: npm run test:web
 
       - name: Build VSIX
         run: npm run build
@@ -56,3 +56,27 @@ jobs:
               --title "GitPaste $TAG_NAME" \
               --generate-notes
           fi
+
+  # Web integration tests run against a pinned VS Code build and depend on a
+  # live browser download plus external services. A flaky or environment-driven
+  # failure here must never block a release, so this job is non-blocking.
+  web-tests:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Web integration tests
+        # The --commit value pins the VS Code build under test. Update it when
+        # bumping the @vscode/test-web baseline.
+        run: npm run test:web

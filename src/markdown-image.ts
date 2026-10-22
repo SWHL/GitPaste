@@ -12,7 +12,7 @@ interface ParsedMarkdownImage extends MarkdownImage {
 
 export function findMarkdownImageUrlAtOffset(
   text: string,
-  offset: number
+  offset: number,
 ): MarkdownImage | undefined {
   const image = findParsedMarkdownImageAtOffset(text, offset)
   if (!image || offset < image.urlStart || offset >= image.urlEnd) {
@@ -23,7 +23,7 @@ export function findMarkdownImageUrlAtOffset(
 
 export function findMarkdownImageAtOffset(
   text: string,
-  offset: number
+  offset: number,
 ): MarkdownImage | undefined {
   const image = findParsedMarkdownImageAtOffset(text, offset)
   return image ? publicImage(image) : undefined
@@ -31,7 +31,7 @@ export function findMarkdownImageAtOffset(
 
 function findParsedMarkdownImageAtOffset(
   text: string,
-  offset: number
+  offset: number,
 ): ParsedMarkdownImage | undefined {
   let start = text.lastIndexOf('![', offset)
   while (start >= 0) {
@@ -45,7 +45,7 @@ function findParsedMarkdownImageAtOffset(
 
 function parseMarkdownImage(
   text: string,
-  start: number
+  start: number,
 ): ParsedMarkdownImage | undefined {
   const altEnd = findUnescaped(text, ']', start + 2)
   if (altEnd < 0 || text[altEnd + 1] !== '(') return undefined
@@ -90,7 +90,7 @@ function parseMarkdownImage(
     urlStart,
     urlEnd,
     alt: unescapeMarkdown(text.slice(start + 2, altEnd)),
-    url: unescapeMarkdown(text.slice(urlStart, urlEnd))
+    url: unescapeMarkdown(text.slice(urlStart, urlEnd)),
   }
 }
 
@@ -99,7 +99,7 @@ function publicImage(image: ParsedMarkdownImage): MarkdownImage {
     start: image.start,
     end: image.end,
     alt: image.alt,
-    url: image.url
+    url: image.url,
   }
 }
 
@@ -142,5 +142,6 @@ function isWhitespace(value: string | undefined): boolean {
 }
 
 function unescapeMarkdown(value: string): string {
+  // eslint-disable-next-line no-useless-escape
   return value.replace(/\\([\\`*{}\[\]()#+\-.!_<>])/g, '$1')
 }

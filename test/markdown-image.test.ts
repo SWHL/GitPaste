@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   findMarkdownImageAtOffset,
-  findMarkdownImageUrlAtOffset
+  findMarkdownImageUrlAtOffset,
 } from '../src/markdown-image'
 
 test('finds a Markdown image containing the cursor', () => {
@@ -11,7 +11,7 @@ test('finds a Markdown image containing the cursor', () => {
     start: 7,
     end: 56,
     alt: 'old image',
-    url: 'https://example.com/old.png'
+    url: 'https://example.com/old.png',
   })
 })
 
@@ -23,7 +23,10 @@ test('supports angle-wrapped URLs and ignores links away from the cursor', () =>
 
 test('supports balanced parentheses in image URLs', () => {
   const text = '![chart](https://example.com/chart_(1).png)'
-  assert.equal(findMarkdownImageAtOffset(text, 20)?.url, 'https://example.com/chart_(1).png')
+  assert.equal(
+    findMarkdownImageAtOffset(text, 20)?.url,
+    'https://example.com/chart_(1).png',
+  )
 })
 
 test('returns the exact replacement range without adjacent text', () => {
@@ -35,7 +38,10 @@ test('returns the exact replacement range without adjacent text', () => {
 
 test('can identify an image when the cursor is on its alt text', () => {
   const text = '![old](https://example.com/old.png)'
-  assert.equal(findMarkdownImageAtOffset(text, text.indexOf('old'))?.url, 'https://example.com/old.png')
+  assert.equal(
+    findMarkdownImageAtOffset(text, text.indexOf('old'))?.url,
+    'https://example.com/old.png',
+  )
   assert(findMarkdownImageUrlAtOffset(text, text.indexOf('old.png')))
 })
 
@@ -45,8 +51,11 @@ test('does not treat the image end or URL end as inside the image', () => {
   assert(image)
   assert.equal(findMarkdownImageAtOffset(text, image.end), undefined)
   assert.equal(
-    findMarkdownImageUrlAtOffset(text, text.indexOf('old.png') + 'old.png'.length),
-    undefined
+    findMarkdownImageUrlAtOffset(
+      text,
+      text.indexOf('old.png') + 'old.png'.length,
+    ),
+    undefined,
   )
 })
 

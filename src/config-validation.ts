@@ -9,7 +9,7 @@ export function validateConfig(config: GitPasteConfig): void {
   normalizeRepoPath(config.path)
   if (!CONFLICT_STRATEGIES.includes(config.conflictStrategy)) {
     throw new Error(
-      'The filename conflict strategy must be rename, overwrite, or prompt.'
+      'The filename conflict strategy must be rename, overwrite, or prompt.',
     )
   }
   if (!FILE_NAME_STRATEGIES.includes(config.fileNameStrategy)) {
@@ -29,7 +29,7 @@ export function validateConfig(config: GitPasteConfig): void {
     config.repository,
     config.branch,
     joinRepoPath(config.path, 'image.png'),
-    'https://raw.githubusercontent.com/example/image.png'
+    'https://raw.githubusercontent.com/example/image.png',
   )
   try {
     const parsed = new URL(sampleUrl)
@@ -43,6 +43,6 @@ export function validateConfig(config: GitPasteConfig): void {
     config.fileNameFormat,
     'image.png',
     'image/png',
-    'document.md'
+    'document.md',
   )
 }

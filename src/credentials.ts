@@ -1,4 +1,5 @@
 import * as vscode from 'vscode'
+import { errorMessage } from './util'
 
 const TOKEN_KEY = 'gitpaste.github.personalAccessToken'
 const GITHUB_SCOPES = ['repo']
@@ -9,7 +10,10 @@ type AuthenticationMethod = 'github' | 'pat'
 export class Credentials {
   constructor(private readonly secrets: vscode.SecretStorage) {}
 
-  async getToken(interactive: boolean): Promise<string> {
+  async getToken(
+    interactive: boolean,
+    verify?: (token: string) => Promise<void>,
+  ): Promise<string> {
     const personalToken = await this.secrets.get(TOKEN_KEY)
     if (personalToken) return personalToken
 
@@ -17,15 +21,30 @@ export class Credentials {
       if (!interactive) {
         throw new Error('The configured personal access token is unavailable.')
       }
-      const promptedToken = await this.promptForPersonalToken()
+      const promptedToken = await this.promptForPersonalTokenValue()
       if (!promptedToken) throw new vscode.CancellationError()
+      // Verify before persisting so an invalid token is never written to
+      // SecretStorage. Mirrors the setToken/configure flows.
+      if (verify) {
+        try {
+          await verify(promptedToken)
+        } catch (error) {
+          void vscode.window.showErrorMessage(
+            `GitPaste: the personal access token is invalid: ${errorMessage(
+              error,
+            )}`,
+          )
+          throw new vscode.CancellationError()
+        }
+      }
+      await this.savePersonalToken(promptedToken)
       return promptedToken
     }
 
     const existing = await vscode.authentication.getSession(
       'github',
       GITHUB_SCOPES,
-      { createIfNone: false }
+      { createIfNone: false },
     )
     if (existing) return existing.accessToken
     if (!interactive) {
@@ -35,7 +54,7 @@ export class Credentials {
     const session = await vscode.authentication.getSession(
       'github',
       GITHUB_SCOPES,
-      { createIfNone: true }
+      { createIfNone: true },
     )
     return session.accessToken
   }
@@ -45,13 +64,14 @@ export class Credentials {
     const session = await vscode.authentication.getSession(
       'github',
       GITHUB_SCOPES,
-      { createIfNone: true }
+      { createIfNone: true },
     )
     await this.setAuthenticationMethod('github')
     return session.accessToken
   }
 
-  async promptForPersonalToken(): Promise<string | undefined> {
+  /** Prompts for a personal access token without persisting it. */
+  async promptForPersonalTokenValue(): Promise<string | undefined> {
     const token = await vscode.window.showInputBox({
       title: 'GitPaste: GitHub personal access token',
       prompt:
@@ -59,12 +79,15 @@ export class Credentials {
       password: true,
       ignoreFocusOut: true,
       validateInput: (value) =>
-        value.trim() ? undefined : 'A token is required.'
+        value.trim() ? undefined : 'A token is required.',
     })
-    if (!token) return undefined
+    return token?.trim() || undefined
+  }
+
+  /** Persists a previously verified personal access token. */
+  async savePersonalToken(token: string): Promise<void> {
     await this.secrets.store(TOKEN_KEY, token.trim())
     await this.setAuthenticationMethod('pat')
-    return token.trim()
   }
 
   async clearPersonalToken(): Promise<void> {
@@ -79,14 +102,14 @@ export class Credentials {
   }
 
   private async setAuthenticationMethod(
-    method: AuthenticationMethod
+    method: AuthenticationMethod,
   ): Promise<void> {
     await vscode.workspace
       .getConfiguration('gitpaste')
       .update(
         AUTHENTICATION_METHOD_SETTING,
         method,
-        vscode.ConfigurationTarget.Global
+        vscode.ConfigurationTarget.Global,
       )
   }
 }

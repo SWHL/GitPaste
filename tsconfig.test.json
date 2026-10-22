@@ -1,12 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "lib": [
-      "ES2022"
-    ],
-    "types": [
-      "node"
-    ],
+    "lib": ["ES2022", "WebWorker"],
+    "types": ["node"],
     "outDir": ".test-dist",
     "sourceMap": false
   },
@@ -20,6 +16,7 @@
     "src/public-url.ts",
     "src/types.ts",
     "src/explicit-paste-request.ts",
+    "src/util.ts",
     "test/*.test.ts"
   ]
 }

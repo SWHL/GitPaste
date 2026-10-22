@@ -9,13 +9,10 @@ const MIME_EXTENSIONS: Readonly<Record<string, string>> = {
   'image/svg+xml': '.svg',
   'image/tiff': '.tiff',
   'image/webp': '.webp',
-  'image/x-icon': '.ico'
+  'image/x-icon': '.ico',
 }
 
-export function interpolate(
-  template: string,
-  values: TemplateValues
-): string {
+export function interpolate(template: string, values: TemplateValues): string {
   return template.replace(/\$\{([A-Za-z][A-Za-z0-9]*)\}/g, (match, key) => {
     const value = values[key]
     return value === undefined ? match : String(value)
@@ -33,7 +30,7 @@ export function splitFileName(fileName: string): {
   }
   return {
     name: cleanName.slice(0, extensionIndex),
-    extName: cleanName.slice(extensionIndex).toLowerCase()
+    extName: cleanName.slice(extensionIndex).toLowerCase(),
   }
 }
 
@@ -45,10 +42,10 @@ export function extensionForMime(mimeType?: string): string {
 export async function sha256Hex(data: Uint8Array): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest(
     'SHA-256',
-    data as any
+    data as BufferSource,
   )
   return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0')
+    byte.toString(16).padStart(2, '0'),
   ).join('')
 }
 
@@ -56,10 +53,12 @@ export function formatHashRemotePath(
   basePath: string,
   hash: string,
   originalName: string,
-  mimeType?: string
+  mimeType?: string,
 ): string {
   if (!/^[a-f0-9]{64}$/.test(hash)) {
-    throw new Error('The SHA-256 hash must be a 64-character hexadecimal string.')
+    throw new Error(
+      'The SHA-256 hash must be a 64-character hexadecimal string.',
+    )
   }
   const original = splitFileName(originalName)
   const extension = extensionForMime(mimeType) || original.extName || '.png'
@@ -67,7 +66,7 @@ export function formatHashRemotePath(
     basePath,
     hash.slice(0, 2),
     hash.slice(2, 4),
-    `${hash}${extension}`
+    `${hash}${extension}`,
   )
 }
 
@@ -77,7 +76,7 @@ export function formatUploadFileName(
   mimeType: string | undefined,
   documentName: string,
   now = new Date(),
-  random = randomString()
+  random = randomString(),
 ): string {
   const original = splitFileName(originalName)
   const extName = original.extName || extensionForMime(mimeType) || '.png'
@@ -92,7 +91,7 @@ export function formatUploadFileName(
     HH: pad(now.getHours()),
     mm: pad(now.getMinutes()),
     ss: pad(now.getSeconds()),
-    document: sanitizeSegment(documentName)
+    document: sanitizeSegment(documentName),
   }
   const rendered = sanitizeSegment(interpolate(template, values))
   if (!rendered) {
@@ -104,11 +103,14 @@ export function formatUploadFileName(
 }
 
 export function sanitizeSegment(value: string): string {
-  return value
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^[-.]+|[-.]+$/g, '')
+  return (
+    value
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^[-.]+|[-.]+$/g, '')
+  )
 }
 
 export function normalizeRepoPath(value: string): string {
@@ -149,5 +151,7 @@ function pad(value: number): string {
 function randomString(): string {
   const bytes = new Uint8Array(4)
   globalThis.crypto.getRandomValues(bytes)
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  )
 }

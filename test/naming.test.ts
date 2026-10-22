@@ -10,7 +10,7 @@ import {
   normalizeRepoPath,
   sanitizeSegment,
   sha256Hex,
-  splitFileName
+  splitFileName,
 } from '../src/naming'
 
 test('formats a deterministic upload filename', () => {
@@ -20,18 +20,15 @@ test('formats a deterministic upload filename', () => {
     'image/png',
     'notes.md',
     new Date(2026, 6, 27, 9, 5, 4),
-    'a1b2c3d4'
+    'a1b2c3d4',
   )
-  assert.equal(
-    actual,
-    '20260727-notes.md-Screen-Shot-a1b2c3d4.png'
-  )
+  assert.equal(actual, '20260727-notes.md-Screen-Shot-a1b2c3d4.png')
 })
 
 test('appends a suffix before the extension', () => {
   assert.equal(
     appendFileNameSuffix('images/photo.final.png', '-2'),
-    'images/photo.final-2.png'
+    'images/photo.final-2.png',
   )
 })
 
@@ -42,7 +39,7 @@ test('adds an extension based on the mime type', () => {
     'image/webp',
     'readme',
     new Date(0),
-    '12345678'
+    '12345678',
   )
   assert.equal(actual, 'pasted-image-12345678.webp')
 })
@@ -51,11 +48,11 @@ test('builds a stable hash path and computes SHA-256', async () => {
   const hash = await sha256Hex(new TextEncoder().encode('hello'))
   assert.equal(
     hash,
-    '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
+    '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
   )
   assert.equal(
     formatHashRemotePath('images', hash, 'Screenshot', 'image/png'),
-    `images/2c/f2/${hash}.png`
+    `images/2c/f2/${hash}.png`,
   )
 })
 
@@ -64,21 +61,30 @@ test('sanitizes unsafe path characters without discarding unicode', () => {
 })
 
 test('normalizes and joins repository paths', () => {
-  assert.equal(joinRepoPath('/images/', './2026', 'cover.png'), 'images/2026/cover.png')
-  assert.throws(() => normalizeRepoPath('images/../secret.png'), /cannot contain/)
+  assert.equal(
+    joinRepoPath('/images/', './2026', 'cover.png'),
+    'images/2026/cover.png',
+  )
+  assert.throws(
+    () => normalizeRepoPath('images/../secret.png'),
+    /cannot contain/,
+  )
 })
 
 test('encodes repository paths one segment at a time', () => {
   assert.equal(
     encodeRepoPath('images/设计 稿.png'),
-    'images/%E8%AE%BE%E8%AE%A1%20%E7%A8%BF.png'
+    'images/%E8%AE%BE%E8%AE%A1%20%E7%A8%BF.png',
   )
 })
 
 test('splits filenames and leaves unknown template variables intact', () => {
   assert.deepEqual(splitFileName('folder/photo.final.JPG?raw=1'), {
     name: 'photo.final',
-    extName: '.jpg'
+    extName: '.jpg',
   })
-  assert.equal(interpolate('${known}-${future}', { known: 'yes' }), 'yes-${future}')
+  assert.equal(
+    interpolate('${known}-${future}', { known: 'yes' }),
+    'yes-${future}',
+  )
 })

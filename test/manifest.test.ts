@@ -25,9 +25,7 @@ interface Manifest {
   }
 }
 
-const manifest = JSON.parse(
-  readFileSync('package.json', 'utf8')
-) as Manifest
+const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as Manifest
 const englishReadme = readFileSync('README.md', 'utf8')
 const chineseReadme = readFileSync('docs/README_ZH.md', 'utf8')
 
@@ -40,12 +38,15 @@ test('registers new commands without removing existing upload commands', () => {
     'gitpaste.uploadImageFromInputBox',
     'gitpaste.replaceImageAtCursor',
     'gitpaste.deleteImageAtCursor',
-    'gitpaste.checkConfiguration'
+    'gitpaste.checkConfiguration',
   ]) {
-    assert(commands.includes(command), `${command} is missing from the manifest`)
+    assert(
+      commands.includes(command),
+      `${command} is missing from the manifest`,
+    )
     assert(
       manifest.activationEvents.includes(`onCommand:${command}`),
-      `${command} is missing its activation event`
+      `${command} is missing its activation event`,
     )
   }
 })
@@ -55,27 +56,32 @@ test('declares usable desktop shortcuts for every upload command', () => {
   for (const [command, key, mac] of [
     ['gitpaste.uploadImageFromClipboard', 'ctrl+alt+u', 'cmd+alt+u'],
     ['gitpaste.uploadImageFromExplorer', 'ctrl+alt+e', 'cmd+alt+e'],
-    ['gitpaste.uploadImageFromInputBox', 'ctrl+alt+o', 'cmd+alt+o']
+    ['gitpaste.uploadImageFromInputBox', 'ctrl+alt+o', 'cmd+alt+o'],
   ]) {
     const binding = keybindings.find((entry) => entry.command === command)
     assert.deepEqual(binding, {
       command,
       key,
       mac,
-      when: command === 'gitpaste.uploadImageFromClipboard'
-        ? 'editorTextFocus && !isWeb'
-        : 'editorTextFocus'
+      when:
+        command === 'gitpaste.uploadImageFromClipboard'
+          ? 'editorTextFocus && !isWeb'
+          : 'editorTextFocus',
     })
   }
 })
 
 test('labels GitPaste commands in menus without relying on command categories', () => {
   for (const command of manifest.contributes.commands) {
-    assert.match(command.title, /^GitPaste: /, `${command.command} is missing its GitPaste label`)
+    assert.match(
+      command.title,
+      /^GitPaste: /,
+      `${command.command} is missing its GitPaste label`,
+    )
     assert.equal(
       command.category,
       undefined,
-      `${command.command} should not duplicate the GitPaste label in the Command Palette`
+      `${command.command} should not duplicate the GitPaste label in the Command Palette`,
     )
   }
 })
@@ -87,22 +93,22 @@ test('keeps existing editor context commands independent from deletion', () => {
 
   assert.equal(
     whenFor('gitpaste.uploadImageFromExplorer'),
-    'editorLangId == markdown || editorLangId == mdx'
+    'editorLangId == markdown || editorLangId == mdx',
   )
   assert.equal(
     whenFor('gitpaste.replaceImageAtCursor'),
-    'editorLangId == markdown || editorLangId == mdx'
+    'editorLangId == markdown || editorLangId == mdx',
   )
   assert.equal(
     whenFor('gitpaste.deleteImageAtCursor'),
-    'editorLangId == markdown || editorLangId == mdx'
+    'editorLangId == markdown || editorLangId == mdx',
   )
   const commandPaletteWhen = manifest.contributes.menus.commandPalette.find(
-    (entry) => entry.command === 'gitpaste.deleteImageAtCursor'
+    (entry) => entry.command === 'gitpaste.deleteImageAtCursor',
   )?.when
   assert.equal(
     commandPaletteWhen,
-    'editorLangId == markdown || editorLangId == mdx'
+    'editorLangId == markdown || editorLangId == mdx',
   )
 })
 
@@ -111,24 +117,27 @@ test('declares all conflict choices and keeps desktop paste behavior unchanged',
   assert.deepEqual(settings['gitpaste.github.conflictStrategy'].enum, [
     'rename',
     'overwrite',
-    'prompt'
+    'prompt',
   ])
   assert.equal(settings['gitpaste.github.conflictStrategy'].default, 'rename')
   assert.equal(settings['gitpaste.uploadOnPaste'].default, true)
   assert.match(
     settings['gitpaste.uploadOnPaste'].description || '',
-    /ignored on desktop/
+    /ignored on desktop/,
   )
 })
 
 test('documents every contributed setting in both READMEs', () => {
   for (const setting of Object.keys(
-    manifest.contributes.configuration.properties
+    manifest.contributes.configuration.properties,
   )) {
-    assert(englishReadme.includes(setting), `${setting} is missing from README.md`)
+    assert(
+      englishReadme.includes(setting),
+      `${setting} is missing from README.md`,
+    )
     assert(
       chineseReadme.includes(setting),
-      `${setting} is missing from docs/README_ZH.md`
+      `${setting} is missing from docs/README_ZH.md`,
     )
   }
 })

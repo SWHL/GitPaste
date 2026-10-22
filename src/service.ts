@@ -3,25 +3,25 @@ import { Credentials } from './credentials'
 import {
   formatHashRemotePath,
   formatUploadFileName,
-  encodeRepoPath,
   joinRepoPath,
   nameWithoutExtension,
   normalizeRepoPath,
   sha256Hex,
-  splitFileName
+  splitFileName,
 } from './naming'
 import {
   formatOutput,
   buildPublicUrl,
   parseRepository,
-  remotePathFromPublicUrl
+  rawGitHubUrl,
+  remotePathFromPublicUrl,
 } from './public-url'
 import { validateConfig } from './config-validation'
 import { GitHubProvider } from './providers/github'
 import {
   cleanupCandidates,
   remoteVersionMatchesUpload,
-  resolveUploadDestination
+  resolveUploadDestination,
 } from './upload-policy'
 import type {
   GitPasteConfig,
@@ -29,8 +29,15 @@ import type {
   ImageInput,
   ConflictStrategy,
   FileNameStrategy,
-  UploadedImage
+  UploadedImage,
 } from './types'
+import {
+  errorMessage,
+  formatBytes,
+  mapWithConcurrency,
+  pathBaseName,
+  preflightContentLength,
+} from './util'
 
 const IMAGE_EXTENSIONS = [
   'avif',
@@ -42,31 +49,36 @@ const IMAGE_EXTENSIONS = [
   'png',
   'svg',
   'tiff',
-  'webp'
+  'webp',
 ]
 
 interface FailureAction extends vscode.MessageItem {
   readonly action: 'retry' | 'skip' | 'cancel'
 }
 
+const UPLOAD_CONCURRENCY = 3
+
 export class GitPasteService {
   constructor(
     private readonly credentials: Credentials,
-    private readonly output: vscode.OutputChannel
+    private readonly output: vscode.OutputChannel,
   ) {}
 
   async uploadImages(
     images: readonly ImageInput[],
     documentName: string,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
   ): Promise<UploadedImage[]> {
     if (!images.length) return []
     const config = await this.getConfig(true)
-    const accessToken = await this.credentials.getToken(true)
+    const accessToken = await this.credentials.getToken(
+      true,
+      this.verifyConfiguration.bind(this),
+    )
     const provider = new GitHubProvider(accessToken)
     const target: GitHubTarget = {
       repository: config.repository,
-      branch: config.branch
+      branch: config.branch,
     }
 
     return vscode.window.withProgress(
@@ -75,85 +87,138 @@ export class GitPasteService {
         title: `GitPaste: uploading ${images.length} image${
           images.length === 1 ? '' : 's'
         }`,
-        cancellable: true
+        cancellable: true,
       },
       async (progress, progressToken) => {
-        const uploaded: UploadedImage[] = []
-        for (const [index, image] of images.entries()) {
-          if (token.isCancellationRequested || progressToken.isCancellationRequested) {
-            if (uploaded.length) {
-              await this.offerCleanup(provider, target, uploaded)
-            }
-            throw new vscode.CancellationError()
-          }
-          progress.report({ message: image.name })
-
-          let uploadedImage: UploadedImage | undefined
-          while (!uploadedImage) {
-            try {
-              this.validateSize(image, config.maxFileSizeMb)
-              uploadedImage = await this.uploadImage(
+        // Indexed slots keep the result order aligned with `images` so that
+        // callers can match each uploaded image to its placeholder/range. A
+        // plain `push` would sort by completion order, which diverges from the
+        // input order once uploads run concurrently.
+        const slots: (UploadedImage | undefined)[] = new Array(images.length)
+        try {
+          await mapWithConcurrency(
+            images,
+            UPLOAD_CONCURRENCY,
+            async (image, index) => {
+              if (
+                token.isCancellationRequested ||
+                progressToken.isCancellationRequested
+              ) {
+                throw new vscode.CancellationError()
+              }
+              progress.report({ message: `Uploading ${image.name}` })
+              const uploadedImage = await this.uploadSingleWithRetry(
+                image,
+                config,
                 provider,
                 target,
-                config,
-                image,
-                documentName
+                documentName,
+                token,
+                progressToken,
               )
-            } catch (error) {
-              if (error instanceof vscode.CancellationError) {
-                if (uploaded.length) {
-                  await this.offerCleanup(provider, target, uploaded)
-                }
-                throw error
+              if (uploadedImage) {
+                slots[index] = uploadedImage
+                progress.report({
+                  message: index === images.length - 1 ? 'Done' : image.name,
+                  increment: 100 / images.length,
+                })
               }
-              const action = await this.chooseFailureAction(image, error)
-              if (action === 'retry') continue
-              if (action === 'skip') break
-              if (uploaded.length) {
-                await this.offerCleanup(provider, target, uploaded)
-              }
-              throw new vscode.CancellationError()
-            }
+              return uploadedImage
+            },
+          )
+        } catch (error) {
+          const partial = slots.filter(
+            (value): value is UploadedImage => value !== undefined,
+          )
+          if (partial.length) {
+            await this.offerCleanup(provider, target, partial)
           }
-          if (!uploadedImage) continue
-          uploaded.push(uploadedImage)
-          if (token.isCancellationRequested || progressToken.isCancellationRequested) {
-            await this.offerCleanup(provider, target, uploaded)
-            throw new vscode.CancellationError()
-          }
-          progress.report({
-            message: index === images.length - 1 ? 'Done' : image.name,
-            increment: 100 / images.length
-          })
+          if (error instanceof vscode.CancellationError) throw error
+          throw new vscode.CancellationError()
         }
+        const uploaded = slots.filter(
+          (value): value is UploadedImage => value !== undefined,
+        )
         if (uploaded.length < images.length) {
           void vscode.window.showWarningMessage(
-            `GitPaste: uploaded ${uploaded.length} of ${images.length} images.`
+            `GitPaste: uploaded ${uploaded.length} of ${images.length} images.`,
           )
         }
         if (!uploaded.length) throw new vscode.CancellationError()
         return uploaded
-      }
+      },
     )
+  }
+
+  /**
+   * Uploads a single image, retrying after a recoverable failure or asking the
+   * user how to proceed. Returns `undefined` when the user chooses to skip the
+   * image, and throws a `CancellationError` when the operation is stopped.
+   */
+  private async uploadSingleWithRetry(
+    image: ImageInput,
+    config: GitPasteConfig,
+    provider: GitHubProvider,
+    target: GitHubTarget,
+    documentName: string,
+    token: vscode.CancellationToken,
+    progressToken: vscode.CancellationToken,
+  ): Promise<UploadedImage | undefined> {
+    let uploadedImage: UploadedImage | undefined
+    while (!uploadedImage) {
+      try {
+        this.validateSize(image, config.maxFileSizeMb)
+        uploadedImage = await this.uploadImage(
+          provider,
+          target,
+          config,
+          image,
+          documentName,
+        )
+      } catch (error) {
+        if (error instanceof vscode.CancellationError) throw error
+        if (
+          token.isCancellationRequested ||
+          progressToken.isCancellationRequested
+        ) {
+          throw new vscode.CancellationError()
+        }
+        const action = await this.chooseFailureAction(image, error)
+        if (action === 'retry') continue
+        if (action === 'skip') return undefined
+        throw new vscode.CancellationError()
+      }
+    }
+    return uploadedImage
   }
 
   async deleteUploadedImages(images: readonly UploadedImage[]): Promise<void> {
     const createdImages = cleanupCandidates(images)
     if (!createdImages.length) {
       throw new Error(
-        'Overwritten remote files cannot be automatically rolled back.'
+        'Overwritten remote files cannot be automatically rolled back.',
       )
     }
     const config = await this.getConfig(false)
     const target = this.targetFromConfig(config)
-    const provider = new GitHubProvider(await this.credentials.getToken(true))
+    const provider = new GitHubProvider(
+      await this.credentials.getToken(
+        true,
+        this.verifyConfiguration.bind(this),
+      ),
+    )
     await this.deleteImages(provider, target, createdImages)
   }
 
   async deleteRemotePath(remotePath: string): Promise<void> {
     const config = await this.getConfig(false)
     const target = this.targetFromConfig(config)
-    const provider = new GitHubProvider(await this.credentials.getToken(true))
+    const provider = new GitHubProvider(
+      await this.credentials.getToken(
+        true,
+        this.verifyConfiguration.bind(this),
+      ),
+    )
     const current = await provider.getFile(target, remotePath)
     if (!current) {
       throw new Error(`Remote image no longer exists: ${remotePath}`)
@@ -162,10 +227,10 @@ export class GitPasteService {
       target,
       remotePath: current.remotePath,
       sha: current.sha,
-      commitMessage: `Delete ${current.remotePath} with GitPaste`
+      commitMessage: `Delete ${current.remotePath} with GitPaste`,
     })
     this.output.appendLine(
-      `Deleted ${target.repository}@${target.branch}:${remotePath}`
+      `Deleted ${target.repository}@${target.branch}:${remotePath}`,
     )
   }
 
@@ -175,7 +240,7 @@ export class GitPasteService {
       config.publicUrl,
       config.repository,
       config.branch,
-      url
+      url,
     )
     if (!mapped) return undefined
     let remotePath: string
@@ -200,7 +265,7 @@ export class GitPasteService {
     target: GitHubTarget,
     config: GitPasteConfig,
     image: ImageInput,
-    documentName: string
+    documentName: string,
   ): Promise<UploadedImage> {
     const hashMode = config.fileNameStrategy === 'hash'
     const hash = hashMode ? await sha256Hex(image.data) : undefined
@@ -208,7 +273,7 @@ export class GitPasteService {
       config.fileNameFormat,
       image.name,
       image.mimeType,
-      documentName
+      documentName,
     )
     const requestedPath = hashMode
       ? formatHashRemotePath(config.path, hash!, image.name, image.mimeType)
@@ -222,7 +287,7 @@ export class GitPasteService {
         target.repository,
         target.branch,
         existing.remotePath,
-        rawGitHubUrl(target.repository, target.branch, existing.remotePath)
+        rawGitHubUrl(target.repository, target.branch, existing.remotePath),
       )
       const uploadedName = nameWithoutExtension(image.name)
       this.output.appendLine(`Reused ${image.name}: ${url}`)
@@ -238,8 +303,8 @@ export class GitPasteService {
           uploadedName,
           uploadedName,
           url,
-          config.includeImageName
-        )
+          config.includeImageName,
+        ),
       }
     }
     const destination = hashMode
@@ -248,13 +313,13 @@ export class GitPasteService {
           requestedPath,
           config.conflictStrategy,
           (remotePath) => provider.getFile(target, remotePath),
-          () => this.promptForConflict(requestedPath)
+          () => this.promptForConflict(requestedPath),
         )
     const remotePath = destination.remotePath
 
     const uploadedFileName = remotePath.split('/').pop() || fileName
     this.output.appendLine(
-      `Uploading ${image.name} to ${target.repository}@${target.branch}:${remotePath}`
+      `Uploading ${image.name} to ${target.repository}@${target.branch}:${remotePath}`,
     )
     const result = await provider.upload({
       data: image.data,
@@ -262,14 +327,14 @@ export class GitPasteService {
       remotePath,
       commitMessage: config.commitMessage,
       target,
-      existingSha: destination.existingSha
+      existingSha: destination.existingSha,
     })
     const url = buildPublicUrl(
       config.publicUrl,
       target.repository,
       target.branch,
       result.remotePath,
-      result.downloadUrl
+      result.downloadUrl,
     )
     const uploadedName = hashMode
       ? nameWithoutExtension(image.name)
@@ -287,8 +352,8 @@ export class GitPasteService {
         uploadedName,
         nameWithoutExtension(image.name),
         url,
-        config.includeImageName
-      )
+        config.includeImageName,
+      ),
     }
   }
 
@@ -296,29 +361,56 @@ export class GitPasteService {
     const data = await vscode.workspace.fs.readFile(uri)
     return {
       data,
-      name: uri.path.split('/').pop() || 'image',
-      mimeType: mimeFromName(uri.path)
+      name: pathBaseName(uri.path, 'image'),
+      mimeType: mimeFromName(uri.path),
     }
   }
 
-  async readPathOrUrl(value: string, documentUri?: vscode.Uri): Promise<ImageInput> {
+  async readPathOrUrl(
+    value: string,
+    documentUri?: vscode.Uri,
+  ): Promise<ImageInput> {
     const trimmed = value.trim()
     if (/^https?:\/\//i.test(trimmed)) {
+      const url = new URL(trimmed)
+      const name = pathBaseName(url.pathname, 'image')
+      const maxFileSizeMb = vscode.workspace
+        .getConfiguration('gitpaste')
+        .get<number>('maxFileSizeMb', 20)
+      const maxBytes = maxFileSizeMb * 1024 * 1024
+
+      // Preflight: reject oversized images on a HEAD request before streaming
+      // the whole body. A missing/incorrect header falls through to the GET
+      // path, which still re-checks below.
+      const preflightBytes = await preflightContentLength(trimmed)
+      if (preflightBytes !== undefined && preflightBytes > maxBytes) {
+        throw new Error(
+          `${name} is ${formatBytes(
+            preflightBytes,
+          )}; the configured limit is ${maxFileSizeMb} MB.`,
+        )
+      }
+
       const response = await fetch(trimmed)
       if (!response.ok) {
         throw new Error(
-          `Could not download the image (${response.status} ${response.statusText}).`
+          `Could not download the image (${response.status} ${response.statusText}).`,
+        )
+      }
+      const contentLength = Number(response.headers.get('content-length'))
+      if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+        throw new Error(
+          `${name} is ${formatBytes(contentLength)}; the configured limit is ${maxFileSizeMb} MB.`,
         )
       }
       const mimeType = response.headers.get('content-type')?.split(';')[0]
       if (mimeType && !mimeType.startsWith('image/')) {
         throw new Error(`The URL returned ${mimeType}, not an image.`)
       }
-      const url = new URL(trimmed)
       return {
         data: new Uint8Array(await response.arrayBuffer()),
-        name: url.pathname.split('/').pop() || 'image',
-        mimeType: mimeType || mimeFromName(url.pathname)
+        name,
+        mimeType: mimeType || mimeFromName(url.pathname),
       }
     }
 
@@ -335,33 +427,21 @@ export class GitPasteService {
   }
 
   async verifyCurrentConfiguration(): Promise<void> {
-    await this.verifyConfiguration(await this.credentials.getToken(true))
+    await this.verifyConfiguration(
+      await this.credentials.getToken(
+        true,
+        this.verifyConfiguration.bind(this),
+      ),
+    )
   }
 
-  async getConfig(promptForRepository: boolean): Promise<GitPasteConfig> {
+  /**
+   * Reads the current GitPaste configuration without prompting or writing
+   * anything. Throws when no repository is configured.
+   */
+  private readConfig(): GitPasteConfig {
     const settings = vscode.workspace.getConfiguration('gitpaste')
-    let repository = settings.get<string>('github.repository', '').trim()
-    if (!repository && promptForRepository) {
-      repository =
-        (
-          await vscode.window.showInputBox({
-            title: 'GitPaste: GitHub repository',
-            prompt: 'Repository that will store uploaded images.',
-            placeHolder: 'owner/repository',
-            ignoreFocusOut: true,
-            validateInput: validateRepository
-          })
-        )?.trim() || ''
-      if (repository) {
-        await settings.update(
-          'github.repository',
-          repository,
-          vscode.workspace.workspaceFolders?.length
-            ? vscode.ConfigurationTarget.Workspace
-            : vscode.ConfigurationTarget.Global
-        )
-      }
-    }
+    const repository = settings.get<string>('github.repository', '').trim()
     if (!repository) {
       throw new Error('Configure a GitHub repository before uploading.')
     }
@@ -373,29 +453,63 @@ export class GitPasteService {
       publicUrl: settings.get<string>('github.publicUrl', ''),
       commitMessage: settings.get<string>(
         'github.commitMessage',
-        'Upload ${uploadedName} with GitPaste'
+        'Upload ${uploadedName} with GitPaste',
       ),
       conflictStrategy: settings.get<ConflictStrategy>(
         'github.conflictStrategy',
-        'rename'
+        'rename',
       ),
       fileNameFormat: settings.get<string>(
         'fileNameFormat',
-        '${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}'
+        '${yyyy}-${MM}-${dd}_${HH}-${mm}-${ss}-${random}${extName}',
       ),
       fileNameStrategy: settings.get<FileNameStrategy>(
         'fileNameStrategy',
-        'timestamp'
+        'timestamp',
       ),
       outputFormat: settings.get<string>(
         'outputFormat',
-        '![${uploadedName}](${url})'
+        '![${uploadedName}](${url})',
       ),
       includeImageName: settings.get<boolean>('includeImageName', true),
-      maxFileSizeMb: settings.get<number>('maxFileSizeMb', 20)
+      maxFileSizeMb: settings.get<number>('maxFileSizeMb', 20),
     }
     validateConfig(config)
     return config
+  }
+
+  /**
+   * Prompts for and persists the GitHub repository when it is not yet
+   * configured. No-op when a repository is already set.
+   */
+  private async ensureRepository(): Promise<void> {
+    const settings = vscode.workspace.getConfiguration('gitpaste')
+    const repository = settings.get<string>('github.repository', '').trim()
+    if (repository) return
+    const prompted = (
+      await vscode.window.showInputBox({
+        title: 'GitPaste: GitHub repository',
+        prompt: 'Repository that will store uploaded images.',
+        placeHolder: 'owner/repository',
+        ignoreFocusOut: true,
+        validateInput: validateRepository,
+      })
+    )?.trim()
+    if (!prompted) return
+    await settings.update(
+      'github.repository',
+      prompted,
+      vscode.workspace.workspaceFolders?.length
+        ? vscode.ConfigurationTarget.Workspace
+        : vscode.ConfigurationTarget.Global,
+    )
+  }
+
+  async getConfig(promptForRepository: boolean): Promise<GitPasteConfig> {
+    if (promptForRepository) {
+      await this.ensureRepository()
+    }
+    return this.readConfig()
   }
 
   private targetFromConfig(config: GitPasteConfig): GitHubTarget {
@@ -403,22 +517,22 @@ export class GitPasteService {
   }
 
   private async promptForConflict(
-    remotePath: string
+    remotePath: string,
   ): Promise<Exclude<ConflictStrategy, 'prompt'>> {
     const choice = await vscode.window.showQuickPick(
       [
         {
           label: 'Rename new image',
           description: 'Keep both files',
-          strategy: 'rename' as const
+          strategy: 'rename' as const,
         },
         {
           label: 'Overwrite remote image',
           description: 'Replace the existing file at the same URL',
-          strategy: 'overwrite' as const
-        }
+          strategy: 'overwrite' as const,
+        },
       ],
-      { title: `GitPaste: ${remotePath} already exists`, ignoreFocusOut: true }
+      { title: `GitPaste: ${remotePath} already exists`, ignoreFocusOut: true },
     )
     if (!choice) throw new vscode.CancellationError()
     return choice.strategy
@@ -426,17 +540,17 @@ export class GitPasteService {
 
   private async chooseFailureAction(
     image: ImageInput,
-    error: unknown
+    error: unknown,
   ): Promise<FailureAction['action']> {
     const actions: FailureAction[] = [
       { title: 'Retry', action: 'retry' },
       { title: 'Skip', action: 'skip' },
-      { title: 'Stop', action: 'cancel', isCloseAffordance: true }
+      { title: 'Stop', action: 'cancel', isCloseAffordance: true },
     ]
     const choice = await vscode.window.showErrorMessage(
       `GitPaste: failed to upload ${image.name}: ${errorMessage(error)}`,
       { modal: true },
-      ...actions
+      ...actions,
     )
     return choice?.action || 'cancel'
   }
@@ -444,13 +558,13 @@ export class GitPasteService {
   private async offerCleanup(
     provider: GitHubProvider,
     target: GitHubTarget,
-    uploaded: readonly UploadedImage[]
+    uploaded: readonly UploadedImage[],
   ): Promise<void> {
     const createdImages = cleanupCandidates(uploaded)
     const overwrittenCount = uploaded.length - createdImages.length
     if (!createdImages.length) {
       await vscode.window.showWarningMessage(
-        'GitPaste: remote files were overwritten before the operation stopped and cannot be automatically rolled back.'
+        'GitPaste: remote files were overwritten before the operation stopped and cannot be automatically rolled back.',
       )
       return
     }
@@ -466,7 +580,7 @@ export class GitPasteService {
       }`,
       { modal: true },
       'Delete uploaded files',
-      'Keep files'
+      'Keep files',
     )
     if (choice === 'Delete uploaded files') {
       await this.deleteImages(provider, target, createdImages)
@@ -476,7 +590,7 @@ export class GitPasteService {
   private async deleteImages(
     provider: GitHubProvider,
     target: GitHubTarget,
-    images: readonly UploadedImage[]
+    images: readonly UploadedImage[],
   ): Promise<void> {
     const failures: string[] = []
     for (const image of [...images].reverse()) {
@@ -490,10 +604,10 @@ export class GitPasteService {
           target,
           remotePath: current.remotePath,
           sha: current.sha,
-          commitMessage: `Delete ${current.remotePath} after an incomplete GitPaste operation`
+          commitMessage: `Delete ${current.remotePath} after an incomplete GitPaste operation`,
         })
         this.output.appendLine(
-          `Deleted ${target.repository}@${target.branch}:${current.remotePath}`
+          `Deleted ${target.repository}@${target.branch}:${current.remotePath}`,
         )
       } catch (error) {
         failures.push(`${image.remotePath}: ${errorMessage(error)}`)
@@ -501,7 +615,7 @@ export class GitPasteService {
     }
     if (failures.length) {
       throw new Error(
-        `Some uploaded files could not be deleted: ${failures.join('; ')}`
+        `Some uploaded files could not be deleted: ${failures.join('; ')}`,
       )
     }
   }
@@ -511,8 +625,8 @@ export class GitPasteService {
     if (image.data.byteLength > maximum) {
       throw new Error(
         `${image.name} is ${formatBytes(
-          image.data.byteLength
-        )}; the configured limit is ${maxFileSizeMb} MB.`
+          image.data.byteLength,
+        )}; the configured limit is ${maxFileSizeMb} MB.`,
       )
     }
   }
@@ -537,22 +651,9 @@ function validateRepository(value: string): string | undefined {
   }
 }
 
-function rawGitHubUrl(
-  repository: string,
-  branch: string,
-  remotePath: string
-): string {
-  const parsed = parseRepository(repository)
-  return `https://raw.githubusercontent.com/${encodeURIComponent(
-    parsed.owner
-  )}/${encodeURIComponent(parsed.repository)}/${encodeRepoPath(
-    branch
-  )}/${encodeRepoPath(remotePath)}`
-}
-
 function resolveWorkspaceUri(
   value: string,
-  documentUri?: vscode.Uri
+  documentUri?: vscode.Uri,
 ): vscode.Uri | undefined {
   if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(value)) {
     return vscode.Uri.parse(value)
@@ -578,15 +679,7 @@ function mimeFromName(name: string): string | undefined {
     '.png': 'image/png',
     '.svg': 'image/svg+xml',
     '.tiff': 'image/tiff',
-    '.webp': 'image/webp'
+    '.webp': 'image/webp',
   }
   return types[extension]
-}
-
-function formatBytes(bytes: number): string {
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

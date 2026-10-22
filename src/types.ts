@@ -41,7 +41,7 @@ export interface UploadProvider<TTarget> {
   upload(request: UploadRequest<TTarget>): Promise<ProviderUploadResult>
   getFile?(
     target: TTarget,
-    remotePath: string
+    remotePath: string,
   ): Promise<ProviderFile | undefined>
   delete?(request: DeleteRequest<TTarget>): Promise<void>
   verify?(target: TTarget): Promise<void>

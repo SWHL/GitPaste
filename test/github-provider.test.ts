@@ -12,11 +12,11 @@ test('uses current file metadata to overwrite and delete GitHub content', async 
         path: 'images/photo.png',
         sha: 'new-sha',
         download_url:
-          'https://raw.githubusercontent.com/octocat/images/main/images/photo.png'
-      }
+          'https://raw.githubusercontent.com/octocat/images/main/images/photo.png',
+      },
     }),
     jsonResponse({ path: 'images/photo.png', sha: 'new-sha' }),
-    jsonResponse({ commit: { sha: 'delete-commit' } })
+    jsonResponse({ commit: { sha: 'delete-commit' } }),
   ]
   globalThis.fetch = async (input, init) => {
     calls.push({ url: String(input), init })
@@ -36,7 +36,7 @@ test('uses current file metadata to overwrite and delete GitHub content', async 
       remotePath: 'images/photo.png',
       commitMessage: 'Upload ${uploadedName}',
       target,
-      existingSha: existing?.sha
+      existingSha: existing?.sha,
     })
     const current = await provider.getFile(target, 'images/photo.png')
     assert(current)
@@ -44,7 +44,7 @@ test('uses current file metadata to overwrite and delete GitHub content', async 
       remotePath: current.remotePath,
       sha: current.sha,
       commitMessage: 'Delete photo.png',
-      target
+      target,
     })
   } finally {
     globalThis.fetch = originalFetch
@@ -56,13 +56,13 @@ test('uses current file metadata to overwrite and delete GitHub content', async 
     message: 'Upload photo.png',
     content: 'AQID',
     branch: 'main',
-    sha: 'old-sha'
+    sha: 'old-sha',
   })
   assert.equal(calls[3].init?.method, 'DELETE')
   assert.deepEqual(JSON.parse(String(calls[3].init?.body)), {
     message: 'Delete photo.png',
     sha: 'new-sha',
-    branch: 'main'
+    branch: 'main',
   })
 })
 
@@ -74,9 +74,9 @@ test('configuration verification rejects credentials without write access', asyn
     await assert.rejects(
       new GitHubProvider('read-only').verify({
         repository: 'octocat/images',
-        branch: 'main'
+        branch: 'main',
       }),
-      /does not have write access/
+      /does not have write access/,
     )
   } finally {
     globalThis.fetch = originalFetch
@@ -93,8 +93,8 @@ test('creates a new file without an overwrite SHA', async () => {
         path: 'images/new.png',
         sha: 'new-sha',
         download_url:
-          'https://raw.githubusercontent.com/octocat/images/main/images/new.png'
-      }
+          'https://raw.githubusercontent.com/octocat/images/main/images/new.png',
+      },
     })
   }
   try {
@@ -103,7 +103,7 @@ test('creates a new file without an overwrite SHA', async () => {
       fileName: 'new.png',
       remotePath: 'images/new.png',
       commitMessage: 'Upload ${uploadedName}',
-      target: { repository: 'octocat/images', branch: 'main' }
+      target: { repository: 'octocat/images', branch: 'main' },
     })
     assert.equal(result.sha, 'new-sha')
   } finally {
@@ -121,9 +121,9 @@ test('returns no file for a GitHub 404 response', async () => {
     assert.equal(
       await new GitHubProvider('secret').getFile(
         { repository: 'octocat/images', branch: 'main' },
-        'images/missing.png'
+        'images/missing.png',
       ),
-      undefined
+      undefined,
     )
   } finally {
     globalThis.fetch = originalFetch
@@ -135,7 +135,7 @@ test('configuration verification checks write permission and the target branch',
   const urls: string[] = []
   const responses = [
     jsonResponse({ permissions: { pull: true, push: true } }),
-    jsonResponse({ name: 'docs/images' })
+    jsonResponse({ name: 'docs/images' }),
   ]
   globalThis.fetch = async (input) => {
     urls.push(String(input))
@@ -146,7 +146,7 @@ test('configuration verification checks write permission and the target branch',
   try {
     await new GitHubProvider('secret').verify({
       repository: 'octocat/images',
-      branch: 'docs/images'
+      branch: 'docs/images',
     })
   } finally {
     globalThis.fetch = originalFetch
@@ -166,13 +166,13 @@ test('retries an upload after a transient GitHub server error', async () => {
   }
   try {
     const result = await new GitHubProvider('secret', {
-      retryBaseDelayMs: 0
+      retryBaseDelayMs: 0,
     }).upload({
       data: new Uint8Array([1]),
       fileName: 'photo.png',
       remotePath: 'images/photo.png',
       commitMessage: 'Upload ${uploadedName}',
-      target: { repository: 'octocat/images', branch: 'main' }
+      target: { repository: 'octocat/images', branch: 'main' },
     })
     assert.equal(result.sha, 'sha')
     assert.equal(calls, 2)
@@ -191,10 +191,10 @@ test('retries a file lookup after a network failure', async () => {
   }
   try {
     const file = await new GitHubProvider('secret', {
-      retryBaseDelayMs: 0
+      retryBaseDelayMs: 0,
     }).getFile(
       { repository: 'octocat/images', branch: 'main' },
-      'images/photo.png'
+      'images/photo.png',
     )
     assert.equal(file?.sha, 'sha')
     assert.equal(calls, 2)
@@ -208,28 +208,24 @@ test('retries a rate-limited delete and reports the remaining quota', async () =
   let calls = 0
   globalThis.fetch = async () => {
     calls += 1
-    return jsonResponse(
-      { message: 'API rate limit exceeded' },
-      429,
-      {
-        'Retry-After': '0',
-        'X-RateLimit-Remaining': '0',
-        'X-RateLimit-Reset': '1893456000'
-      }
-    )
+    return jsonResponse({ message: 'API rate limit exceeded' }, 429, {
+      'Retry-After': '0',
+      'X-RateLimit-Remaining': '0',
+      'X-RateLimit-Reset': '1893456000',
+    })
   }
   try {
     await assert.rejects(
       new GitHubProvider('secret', {
         maxRetries: 1,
-        retryBaseDelayMs: 0
+        retryBaseDelayMs: 0,
       }).delete({
         remotePath: 'images/photo.png',
         sha: 'sha',
         commitMessage: 'Delete photo.png',
-        target: { repository: 'octocat/images', branch: 'main' }
+        target: { repository: 'octocat/images', branch: 'main' },
       }),
-      /API rate limit remaining: 0; resets at/
+      /API rate limit remaining: 0; resets at/,
     )
     assert.equal(calls, 2)
   } finally {
@@ -240,10 +236,10 @@ test('retries a rate-limited delete and reports the remaining quota', async () =
 function jsonResponse(
   value: unknown,
   status = 200,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { 'Content-Type': 'application/json', ...headers }
+    headers: { 'Content-Type': 'application/json', ...headers },
   })
 }

@@ -2,7 +2,7 @@
   "name": "gitpaste",
   "displayName": "GitPaste",
   "description": "Paste images into Markdown and upload them directly to GitHub. Works in VS Code for the Web and desktop.",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "author": {
     "name": "SWHL",
     "email": "liekkaskono@163.com"
@@ -232,19 +232,26 @@
     "watch": "webpack --mode development --watch",
     "package": "webpack --mode production",
     "check": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "npm run check && npm run test:unit",
     "test:unit": "tsc -p tsconfig.test.json && node --test .test-dist/test/*.test.js",
     "test:web": "npm run compile && vscode-test-web --browser chromium --headless --quality stable --commit 33fc5a94a3f99ebe7087e8fe79fbe1d37a251016 --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js .",
     "build": "npm run package && vsce package --no-dependencies --no-yarn -o gitpaste.vsix"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^22.0.0",
     "@types/vscode": "1.97.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/test-web": "^0.0.70",
     "@vscode/vsce": "^3.6.0",
+    "eslint": "^9.39.4",
+    "prettier": "^3.9.10",
     "ts-loader": "^9.5.2",
     "typescript": "^5.8.0",
+    "typescript-eslint": "^8.72.0",
     "webpack": "^5.101.0",
     "webpack-cli": "^6.0.1"
   }
