@@ -24,6 +24,13 @@ export function validateConfig(config: GitPasteConfig): void {
   if (!config.outputFormat.includes('${url}')) {
     throw new Error('The output format must include ${url}.')
   }
+  if (
+    typeof config.maxFileSizeMb !== 'number' ||
+    config.maxFileSizeMb < 1 ||
+    config.maxFileSizeMb > 100
+  ) {
+    throw new Error('The maximum image size must be between 1 and 100 MB.')
+  }
   const sampleUrl = buildPublicUrl(
     config.publicUrl,
     config.repository,

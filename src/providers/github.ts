@@ -239,6 +239,9 @@ export class GitHubProvider implements UploadProvider<GitHubTarget> {
       }, this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS)
       const onAbort = () => controller.abort(signal?.reason)
       signal?.addEventListener('abort', onAbort, { once: true })
+      // If the caller already cancelled before we subscribed, abort now so the
+      // request below is actually aborted instead of running to completion.
+      if (signal?.aborted) controller.abort(signal?.reason)
       try {
         const response = await fetch(input, {
           ...init,

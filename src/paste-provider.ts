@@ -5,6 +5,7 @@ import { TrackedDocumentRange } from './tracked-document-range'
 import { ExplicitPasteRequestTracker } from './explicit-paste-request'
 import type { ImageInput, UploadedImage } from './types'
 import { dedupKey, errorMessage, pathBaseName } from './util'
+import { findPlaceholderRanges } from './paste-placeholder'
 
 const pasteKind = vscode.DocumentDropOrPasteEditKind.Empty.append(
   'markdown',
@@ -259,7 +260,6 @@ export class GitPastePasteProvider
 
       this.watchForAppliedPaste(
         document,
-        ranges,
         placeholder,
         upload,
         images.length,
@@ -283,7 +283,7 @@ export class GitPastePasteProvider
 
   async provideDocumentDropEdits(
     document: vscode.TextDocument,
-    position: vscode.Position,
+    _position: vscode.Position,
     dataTransfer: vscode.DataTransfer,
     token: vscode.CancellationToken,
   ): Promise<vscode.DocumentDropEdit[] | undefined> {
@@ -298,13 +298,11 @@ export class GitPastePasteProvider
     const providerCancellation = token.onCancellationRequested(() =>
       uploadCancellation.cancel(),
     )
-    const range = new vscode.Range(position, position)
     const documentName = pathBaseName(document.uri.path)
     const upload = () =>
       this.service.uploadImages(images, documentName, uploadCancellation.token)
     this.watchForAppliedPaste(
       document,
-      [range],
       placeholder,
       upload,
       images.length,
@@ -423,17 +421,12 @@ export class GitPastePasteProvider
 
   private watchForAppliedPaste(
     document: vscode.TextDocument,
-    ranges: readonly vscode.Range[],
     placeholder: string,
     upload: () => Promise<UploadedImage[]>,
     expectedUploadCount: number,
     uploadCancellation: vscode.CancellationTokenSource,
     providerCancellation: vscode.Disposable,
   ): void {
-    const expectedChanges = ranges.map((range) => ({
-      offset: document.offsetAt(range.start),
-      length: document.offsetAt(range.end) - document.offsetAt(range.start),
-    }))
     let completed = false
     let applied = false
     let uploaded: readonly UploadedImage[] | undefined
@@ -509,53 +502,30 @@ export class GitPastePasteProvider
     }
 
     const subscription = vscode.workspace.onDidChangeTextDocument((event) => {
-      if (event.document !== document) return
-      const unmatchedChanges = [...event.contentChanges]
-      const matched = expectedChanges.every((expected) => {
-        const index = unmatchedChanges.findIndex(
-          (change) =>
-            change.rangeOffset === expected.offset &&
-            change.rangeLength === expected.length &&
-            normalizeLineEndings(change.text) ===
-              normalizeLineEndings(placeholder),
-        )
-        if (index < 0) return false
-        unmatchedChanges.splice(index, 1)
-        return true
-      })
-      if (matched) {
-        applied = true
-        const change = event.contentChanges.find(
-          (candidate) =>
-            normalizeLineEndings(candidate.text) ===
-            normalizeLineEndings(placeholder),
-        )
-        if (change) {
-          let offset = change.rangeOffset
-          insertedRanges = Array.from(
-            { length: expectedUploadCount },
-            (_, index) => {
-              const text = placeholderForIndex(
-                placeholder,
-                index,
-                expectedUploadCount,
-              )
-              const start = offset
-              offset += text.length
-              if (index < expectedUploadCount - 1) offset += 1
-              return new TrackedDocumentRange(
-                document,
-                new vscode.Range(
-                  document.positionAt(start),
-                  document.positionAt(start + text.length),
-                ),
-              )
-            },
-          )
-        }
-        startUpload()
-        complete()
-      }
+      if (event.document !== document || applied) return
+      // Text-based detection: wait until the placeholder is present in the
+      // document, regardless of how the insertion was delivered. This survives
+      // merged/coalesced edits and auto-formatting that would otherwise break
+      // the old exact-contentChange match and strand the placeholder.
+      const ranges = findPlaceholderRanges(
+        event.document.getText(),
+        placeholder,
+        expectedUploadCount,
+      )
+      if (!ranges) return
+      applied = true
+      insertedRanges = ranges.map(
+        ({ offset: start, length }) =>
+          new TrackedDocumentRange(
+            document,
+            new vscode.Range(
+              document.positionAt(start),
+              document.positionAt(start + length),
+            ),
+          ),
+      )
+      startUpload()
+      complete()
     })
     const cancellation = uploadCancellation.token.onCancellationRequested(
       () => {
@@ -585,14 +555,10 @@ export class GitPastePasteProvider
     let uploaded: readonly UploadedImage[] | undefined
     const subscription = vscode.workspace.onDidChangeTextDocument((event) => {
       if (event.document !== replacement.document) return
-      const expectedLength = replacement.image.end - replacement.image.start
-      const applied = event.contentChanges.some(
-        (change) =>
-          change.rangeOffset === replacement.image.start &&
-          change.rangeLength === expectedLength &&
-          change.text === placeholder,
-      )
-      if (!applied) return
+      // Text-based detection: the placeholder was inserted by an additional
+      // edit, which may be coalesced with other edits or reformatted. Match on
+      // presence rather than the exact content-change triple.
+      if (!event.document.getText().includes(placeholder)) return
       completed = true
       subscription.dispose()
       if (timeout) clearTimeout(timeout)
@@ -667,10 +633,6 @@ export const dropProviderMetadata: vscode.DocumentDropEditProviderMetadata = {
   dropMimeTypes: ['image/*', 'files', 'text/uri-list'],
 }
 
-function normalizeLineEndings(value: string): string {
-  return value.replace(/\r\n/g, '\n')
-}
-
 function isFileDropTransfer(dataTransfer: vscode.DataTransfer): boolean {
   for (const [mimeType] of dataTransfer) {
     const normalized = mimeType.toLowerCase()
@@ -682,15 +644,6 @@ function isFileDropTransfer(dataTransfer: vscode.DataTransfer): boolean {
 function uploadingPlaceholder(name: string): string {
   const cleanName = name.replace(/[\r\n<>]/g, '').trim() || 'image'
   return `![Uploading ${cleanName}...]()`
-}
-
-function placeholderForIndex(
-  placeholder: string,
-  index: number,
-  count: number,
-): string {
-  if (count === 1) return placeholder
-  return placeholder.split('\n')[index]
 }
 
 function placeholderForRange(

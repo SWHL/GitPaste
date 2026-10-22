@@ -52,11 +52,52 @@ const IMAGE_EXTENSIONS = [
   'webp',
 ]
 
-interface FailureAction extends vscode.MessageItem {
-  readonly action: 'retry' | 'skip' | 'cancel'
+const UPLOAD_CONCURRENCY = 3
+
+/**
+ * Maximum number of times the user may retry a failed batch before GitPaste
+ * gives up and reports the failures instead of looping indefinitely.
+ */
+const MAX_BATCH_RETRIES = 3
+
+/**
+ * Combines one or more VS Code cancellation tokens into a single `AbortSignal`
+ * so the underlying `fetch` calls are actually aborted when the user cancels an
+ * upload or the progress notification is dismissed.
+ */
+function abortSignalFromTokens(
+  ...tokens: vscode.CancellationToken[]
+): AbortSignal {
+  const controller = new AbortController()
+  for (const token of tokens) {
+    if (token.isCancellationRequested) {
+      controller.abort()
+      break
+    }
+    token.onCancellationRequested(() => controller.abort())
+  }
+  return controller.signal
 }
 
-const UPLOAD_CONCURRENCY = 3
+function isUploadedImage(
+  value: UploadedImage | undefined,
+): value is UploadedImage {
+  return value !== undefined
+}
+
+function describeBatchFailure(
+  failures: ReadonlyArray<{
+    item: { image: ImageInput; index: number }
+    error: unknown
+  }>,
+): string {
+  const names = failures
+    .slice(0, 3)
+    .map((failure) => failure.item.image.name)
+    .join(', ')
+  const overflow = failures.length > 3 ? ` and ${failures.length - 3} more` : ''
+  return `Failed to upload ${failures.length} image(s) after ${MAX_BATCH_RETRIES} retries: ${names}${overflow}. ${errorMessage(failures[0].error)}`
+}
 
 export class GitPasteService {
   constructor(
@@ -90,109 +131,149 @@ export class GitPasteService {
         cancellable: true,
       },
       async (progress, progressToken) => {
-        // Indexed slots keep the result order aligned with `images` so that
+        // Indexed results keep the result order aligned with `images` so that
         // callers can match each uploaded image to its placeholder/range. A
         // plain `push` would sort by completion order, which diverges from the
         // input order once uploads run concurrently.
-        const slots: (UploadedImage | undefined)[] = new Array(images.length)
+        const results: (UploadedImage | undefined)[] = new Array(images.length)
+        // `pending` holds the images that still need an attempt. A failed batch
+        // is retried as a whole (or skipped / stopped) through a single prompt.
+        let pending = images.map((image, index) => ({ image, index }))
+        let batchRetries = 0
+
         try {
-          await mapWithConcurrency(
-            images,
-            UPLOAD_CONCURRENCY,
-            async (image, index) => {
-              if (
-                token.isCancellationRequested ||
-                progressToken.isCancellationRequested
-              ) {
-                throw new vscode.CancellationError()
-              }
-              progress.report({ message: `Uploading ${image.name}` })
-              const uploadedImage = await this.uploadSingleWithRetry(
-                image,
-                config,
-                provider,
-                target,
-                documentName,
-                token,
-                progressToken,
-              )
-              if (uploadedImage) {
-                slots[index] = uploadedImage
-                progress.report({
-                  message: index === images.length - 1 ? 'Done' : image.name,
-                  increment: 100 / images.length,
-                })
-              }
-              return uploadedImage
-            },
-          )
-        } catch (error) {
-          const partial = slots.filter(
-            (value): value is UploadedImage => value !== undefined,
-          )
-          if (partial.length) {
-            await this.offerCleanup(provider, target, partial)
+          while (pending.length) {
+            if (
+              token.isCancellationRequested ||
+              progressToken.isCancellationRequested
+            ) {
+              throw new vscode.CancellationError()
+            }
+            const failures: {
+              item: { image: ImageInput; index: number }
+              error: unknown
+            }[] = []
+            await mapWithConcurrency(
+              pending,
+              UPLOAD_CONCURRENCY,
+              async (item) => {
+                if (
+                  token.isCancellationRequested ||
+                  progressToken.isCancellationRequested
+                ) {
+                  throw new vscode.CancellationError()
+                }
+                progress.report({ message: `Uploading ${item.image.name}` })
+                try {
+                  results[item.index] = await this.uploadImage(
+                    provider,
+                    target,
+                    config,
+                    item.image,
+                    documentName,
+                    abortSignalFromTokens(token, progressToken),
+                  )
+                } catch (error) {
+                  if (error instanceof vscode.CancellationError) throw error
+                  failures.push({ item, error })
+                }
+              },
+            )
+            if (!failures.length) break
+
+            if (batchRetries >= MAX_BATCH_RETRIES) {
+              await this.cleanupCreated(results, provider, target)
+              throw new Error(describeBatchFailure(failures))
+            }
+            const action = await this.chooseBatchFailureAction(
+              failures,
+              token,
+              progressToken,
+            )
+            if (action === 'retry') {
+              batchRetries += 1
+              pending = failures.map((failure) => failure.item)
+              continue
+            }
+            if (action === 'skip') break
+            throw new vscode.CancellationError()
           }
-          if (error instanceof vscode.CancellationError) throw error
-          throw new vscode.CancellationError()
+        } catch (error) {
+          // A user cancellation (or a Stop) leaves any already-created remote
+          // files behind, so roll them back before surfacing the cancellation.
+          if (error instanceof vscode.CancellationError) {
+            await this.cleanupCreated(results, provider, target)
+          }
+          throw error
         }
-        const uploaded = slots.filter(
-          (value): value is UploadedImage => value !== undefined,
-        )
+
+        const uploaded = results.filter(isUploadedImage)
         if (uploaded.length < images.length) {
           void vscode.window.showWarningMessage(
             `GitPaste: uploaded ${uploaded.length} of ${images.length} images.`,
           )
         }
-        if (!uploaded.length) throw new vscode.CancellationError()
+        // Every image failed and the user chose to skip (or nothing was ever
+        // created). Report this instead of swallowing it as a cancellation.
+        if (!uploaded.length) {
+          throw new Error('No images were uploaded.')
+        }
         return uploaded
       },
     )
   }
 
   /**
-   * Uploads a single image, retrying after a recoverable failure or asking the
-   * user how to proceed. Returns `undefined` when the user chooses to skip the
-   * image, and throws a `CancellationError` when the operation is stopped.
+   * Presents a single prompt for an entire failed batch instead of one dialog
+   * per image, so a batch of concurrent failures does not flood the user with
+   * stacked modal dialogs.
    */
-  private async uploadSingleWithRetry(
-    image: ImageInput,
-    config: GitPasteConfig,
-    provider: GitHubProvider,
-    target: GitHubTarget,
-    documentName: string,
+  private async chooseBatchFailureAction(
+    failures: ReadonlyArray<{
+      item: { image: ImageInput; index: number }
+      error: unknown
+    }>,
     token: vscode.CancellationToken,
     progressToken: vscode.CancellationToken,
-  ): Promise<UploadedImage | undefined> {
-    let uploadedImage: UploadedImage | undefined
-    while (!uploadedImage) {
-      try {
-        this.validateSize(image, config.maxFileSizeMb)
-        uploadedImage = await this.uploadImage(
-          provider,
-          target,
-          config,
-          image,
-          documentName,
-        )
-      } catch (error) {
-        if (error instanceof vscode.CancellationError) throw error
-        if (
-          token.isCancellationRequested ||
-          progressToken.isCancellationRequested
-        ) {
-          throw new vscode.CancellationError()
-        }
-        const action = await this.chooseFailureAction(image, error)
-        if (action === 'retry') continue
-        if (action === 'skip') return undefined
-        throw new vscode.CancellationError()
-      }
+  ): Promise<'retry' | 'skip' | 'stop'> {
+    if (
+      token.isCancellationRequested ||
+      progressToken.isCancellationRequested
+    ) {
+      return 'stop'
     }
-    return uploadedImage
+    const names = failures.map((failure) => failure.item.image.name).join(', ')
+    const firstError = errorMessage(failures[0].error)
+    const choice = await vscode.window.showErrorMessage(
+      `GitPaste: failed to upload ${failures.length} image(s) (${names}). ${firstError}`,
+      { modal: true },
+      { title: 'Retry all', action: 'retry' },
+      { title: 'Skip failed', action: 'skip' },
+      { title: 'Stop', action: 'stop', isCloseAffordance: true },
+    )
+    if (!choice) return 'stop'
+    return (choice as { action: 'retry' | 'skip' | 'stop' }).action
   }
 
-  async deleteUploadedImages(images: readonly UploadedImage[]): Promise<void> {
+  /**
+   * Rolls back every remote file that this operation created. Used when an
+   * upload is stopped or cancelled after some images already landed.
+   */
+  private async cleanupCreated(
+    results: ReadonlyArray<UploadedImage | undefined>,
+    provider: GitHubProvider,
+    target: GitHubTarget,
+  ): Promise<void> {
+    const created = cleanupCandidates(results.filter(isUploadedImage))
+    if (created.length) {
+      await this.offerCleanup(provider, target, created)
+    }
+  }
+
+  async deleteUploadedImages(
+    images: readonly UploadedImage[],
+    token?: vscode.CancellationToken,
+  ): Promise<void> {
     const createdImages = cleanupCandidates(images)
     if (!createdImages.length) {
       throw new Error(
@@ -207,10 +288,18 @@ export class GitPasteService {
         this.verifyConfiguration.bind(this),
       ),
     )
-    await this.deleteImages(provider, target, createdImages)
+    await this.deleteImages(
+      provider,
+      target,
+      createdImages,
+      token ? abortSignalFromTokens(token) : undefined,
+    )
   }
 
-  async deleteRemotePath(remotePath: string): Promise<void> {
+  async deleteRemotePath(
+    remotePath: string,
+    token?: vscode.CancellationToken,
+  ): Promise<void> {
     const config = await this.getConfig(false)
     const target = this.targetFromConfig(config)
     const provider = new GitHubProvider(
@@ -219,16 +308,20 @@ export class GitPasteService {
         this.verifyConfiguration.bind(this),
       ),
     )
-    const current = await provider.getFile(target, remotePath)
+    const abortSignal = token ? abortSignalFromTokens(token) : undefined
+    const current = await provider.getFile(target, remotePath, abortSignal)
     if (!current) {
       throw new Error(`Remote image no longer exists: ${remotePath}`)
     }
-    await provider.delete({
-      target,
-      remotePath: current.remotePath,
-      sha: current.sha,
-      commitMessage: `Delete ${current.remotePath} with GitPaste`,
-    })
+    await provider.delete(
+      {
+        target,
+        remotePath: current.remotePath,
+        sha: current.sha,
+        commitMessage: `Delete ${current.remotePath} with GitPaste`,
+      },
+      abortSignal,
+    )
     this.output.appendLine(
       `Deleted ${target.repository}@${target.branch}:${remotePath}`,
     )
@@ -266,7 +359,9 @@ export class GitPasteService {
     config: GitPasteConfig,
     image: ImageInput,
     documentName: string,
+    signal?: AbortSignal,
   ): Promise<UploadedImage> {
+    this.validateSize(image, config.maxFileSizeMb)
     const hashMode = config.fileNameStrategy === 'hash'
     const hash = hashMode ? await sha256Hex(image.data) : undefined
     const fileName = formatUploadFileName(
@@ -279,7 +374,7 @@ export class GitPasteService {
       ? formatHashRemotePath(config.path, hash!, image.name, image.mimeType)
       : joinRepoPath(config.path, fileName)
     const existing = hashMode
-      ? await provider.getFile(target, requestedPath)
+      ? await provider.getFile(target, requestedPath, signal)
       : undefined
     if (hashMode && existing) {
       const url = buildPublicUrl(
@@ -312,7 +407,7 @@ export class GitPasteService {
       : await resolveUploadDestination(
           requestedPath,
           config.conflictStrategy,
-          (remotePath) => provider.getFile(target, remotePath),
+          (remotePath) => provider.getFile(target, remotePath, signal),
           () => this.promptForConflict(requestedPath),
         )
     const remotePath = destination.remotePath
@@ -321,14 +416,17 @@ export class GitPasteService {
     this.output.appendLine(
       `Uploading ${image.name} to ${target.repository}@${target.branch}:${remotePath}`,
     )
-    const result = await provider.upload({
-      data: image.data,
-      fileName: uploadedFileName,
-      remotePath,
-      commitMessage: config.commitMessage,
-      target,
-      existingSha: destination.existingSha,
-    })
+    const result = await provider.upload(
+      {
+        data: image.data,
+        fileName: uploadedFileName,
+        remotePath,
+        commitMessage: config.commitMessage,
+        target,
+        existingSha: destination.existingSha,
+      },
+      signal,
+    )
     const url = buildPublicUrl(
       config.publicUrl,
       target.repository,
@@ -538,23 +636,6 @@ export class GitPasteService {
     return choice.strategy
   }
 
-  private async chooseFailureAction(
-    image: ImageInput,
-    error: unknown,
-  ): Promise<FailureAction['action']> {
-    const actions: FailureAction[] = [
-      { title: 'Retry', action: 'retry' },
-      { title: 'Skip', action: 'skip' },
-      { title: 'Stop', action: 'cancel', isCloseAffordance: true },
-    ]
-    const choice = await vscode.window.showErrorMessage(
-      `GitPaste: failed to upload ${image.name}: ${errorMessage(error)}`,
-      { modal: true },
-      ...actions,
-    )
-    return choice?.action || 'cancel'
-  }
-
   private async offerCleanup(
     provider: GitHubProvider,
     target: GitHubTarget,
@@ -591,21 +672,29 @@ export class GitPasteService {
     provider: GitHubProvider,
     target: GitHubTarget,
     images: readonly UploadedImage[],
+    abortSignal?: AbortSignal,
   ): Promise<void> {
     const failures: string[] = []
     for (const image of [...images].reverse()) {
       try {
-        const current = await provider.getFile(target, image.remotePath)
+        const current = await provider.getFile(
+          target,
+          image.remotePath,
+          abortSignal,
+        )
         if (!current) continue
         if (!remoteVersionMatchesUpload(image, current.sha)) {
           throw new Error('remote file changed after it was uploaded')
         }
-        await provider.delete({
-          target,
-          remotePath: current.remotePath,
-          sha: current.sha,
-          commitMessage: `Delete ${current.remotePath} after an incomplete GitPaste operation`,
-        })
+        await provider.delete(
+          {
+            target,
+            remotePath: current.remotePath,
+            sha: current.sha,
+            commitMessage: `Delete ${current.remotePath} after an incomplete GitPaste operation`,
+          },
+          abortSignal,
+        )
         this.output.appendLine(
           `Deleted ${target.repository}@${target.branch}:${current.remotePath}`,
         )

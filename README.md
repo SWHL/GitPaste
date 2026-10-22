@@ -43,17 +43,17 @@ After PAT authentication is selected, GitPaste asks for the PAT again if SecretS
 
 ## Commands
 
-| Command | Windows/Linux | macOS |
-| --- | --- | --- |
-| Upload Image from Clipboard (desktop) | `Ctrl+Alt+U` | `Cmd+Alt+U` |
-| Paste and Upload Image (Web) | `Ctrl+V` | `Cmd+V` |
-| Upload Images from Explorer | `Ctrl+Alt+E` | `Cmd+Alt+E` |
-| Upload Image from Path or URL | `Ctrl+Alt+O` | `Cmd+Alt+O` |
-| Replace Image at Cursor | Command Palette or editor context menu; in Web, then paste the replacement image | Command Palette or editor context menu; in Web, then paste the replacement image |
-| Delete GitPaste Image | Place the cursor inside the image syntax, then use the editor context menu or Command Palette | Place the cursor inside the image syntax, then use the editor context menu or Command Palette |
-| Check Configuration | Command Palette | Command Palette |
-| Configure GitHub Repository | Command Palette | Command Palette |
-| Set/Clear Personal Access Token | Command Palette | Command Palette |
+| Command                               | Windows/Linux                                                                                 | macOS                                                                                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Upload Image from Clipboard (desktop) | `Ctrl+Alt+U`                                                                                  | `Cmd+Alt+U`                                                                                   |
+| Paste and Upload Image (Web)          | `Ctrl+V`                                                                                      | `Cmd+V`                                                                                       |
+| Upload Images from Explorer           | `Ctrl+Alt+E`                                                                                  | `Cmd+Alt+E`                                                                                   |
+| Upload Image from Path or URL         | `Ctrl+Alt+O`                                                                                  | `Cmd+Alt+O`                                                                                   |
+| Replace Image at Cursor               | Command Palette or editor context menu; in Web, then paste the replacement image              | Command Palette or editor context menu; in Web, then paste the replacement image              |
+| Delete GitPaste Image                 | Place the cursor inside the image syntax, then use the editor context menu or Command Palette | Place the cursor inside the image syntax, then use the editor context menu or Command Palette |
+| Check Configuration                   | Command Palette                                                                               | Command Palette                                                                               |
+| Configure GitHub Repository           | Command Palette                                                                               | Command Palette                                                                               |
+| Set/Clear Personal Access Token       | Command Palette                                                                               | Command Palette                                                                               |
 
 Copy the image itself, not its URL. In VS Code for the Web, `Ctrl/Cmd+V` uploads image clipboard data while text and other clipboard content continue to use normal paste. The GitPaste clipboard shortcut is desktop-only because browsers expose binary clipboard data only through a real paste event.
 You can also drag image files from a file manager into a Markdown or MDX editor. GitPaste inserts upload placeholders at the mouse release position, then replaces them with the finished links. Non-image files keep VS Code's normal drop behavior.
@@ -74,11 +74,11 @@ Credentials are never written to either settings scope. GitHub sessions are mana
 
 `gitpaste.github.conflictStrategy` controls what happens when the generated remote path already exists.
 
-| Value | Behavior | Important detail |
-| --- | --- | --- |
-| `rename` | Finds the first free numeric suffix, such as `photo-2.png` or `photo-3.png`. | Default and safest option; preserves the existing file. |
-| `overwrite` | Reads the current GitHub file SHA and replaces that file. | Keeps the same remote path and normally the same public URL. The old content cannot be automatically restored by GitPaste. |
-| `prompt` | Asks whether to rename or overwrite for each conflict. | Canceling stops the current operation. |
+| Value       | Behavior                                                                     | Important detail                                                                                                           |
+| ----------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `rename`    | Finds the first free numeric suffix, such as `photo-2.png` or `photo-3.png`. | Default and safest option; preserves the existing file.                                                                    |
+| `overwrite` | Reads the current GitHub file SHA and replaces that file.                    | Keeps the same remote path and normally the same public URL. The old content cannot be automatically restored by GitPaste. |
+| `prompt`    | Asks whether to rename or overwrite for each conflict.                       | Canceling stops the current operation.                                                                                     |
 
 The default filename template includes `${random}`, so conflicts are uncommon unless the template is customized.
 
@@ -86,11 +86,13 @@ The default filename template includes `${random}`, so conflicts are uncommon un
 
 GitPaste automatically retries temporary network failures and GitHub responses with status `408`, `429`, `500`, `502`, `503`, or `504` using bounded exponential backoff. It honors GitHub's `Retry-After` header, applies a timeout to every GitHub request, and reports the remaining API quota and reset time when GitHub provides them. Permission failures, exhausted retries, and other permanent errors continue to the manual recovery flow below.
 
-If one item in a multi-image upload fails, GitPaste shows the error and offers:
+If an image in a multi-image upload fails after the automatic retries, GitPaste groups every failed item into a single modal so a batch of concurrent failures does not flood you with stacked dialogs. The modal offers:
 
-- **Retry**: retry the same image.
-- **Skip**: leave that image out and continue with the remaining items.
-- **Stop**: stop the batch and optionally delete files newly created earlier in that operation.
+- **Retry all**: retry every failed image in the batch (up to a bounded number of batch retries).
+- **Skip failed**: keep the images that succeeded and continue, leaving the failed ones out.
+- **Stop**: stop the batch. GitPaste rolls back the files it created earlier in that operation (with your confirmation), then reports the failure instead of swallowing it silently.
+
+When every image in the batch fails, GitPaste reports a descriptive error rather than treating it as a cancellation, so you are never left with a silently dropped upload. A user-initiated cancellation (canceling the progress notification or choosing Stop) remains distinct and triggers cleanup of any files already created.
 
 Cleanup never deletes a file that was overwritten, because GitPaste does not retain the previous file contents. Before deleting a newly created file, GitPaste reads its current SHA again and refuses to delete it if another process has changed it. Explorer and path/URL upload commands also offer cleanup if the remote upload succeeds but the editor edit fails.
 
@@ -142,21 +144,21 @@ A custom public URL must be HTTP(S) and include `${path}`; the output template m
 }
 ```
 
-| Setting | Default | Explanation |
-| --- | --- | --- |
-| `gitpaste.github.repository` | `""` | Required `owner/repository` target. Configure it per workspace when projects use different repositories. |
-| `gitpaste.github.branch` | `"main"` | Branch receiving upload and deletion commits. Branch names containing `/` are supported. |
-| `gitpaste.github.path` | `"images"` | Directory inside the repository. Empty means the repository root; `..` segments are rejected. |
-| `gitpaste.github.authenticationMethod` | `"github"` | `github` uses VS Code sign-in; `pat` uses the token in `SecretStorage`. Normally set by the configuration flow. |
-| `gitpaste.github.publicUrl` | `""` | Empty uses GitHub's returned raw URL. A custom HTTP(S) template must include `${path}`. |
-| `gitpaste.github.commitMessage` | `"Upload ${uploadedName} with GitPaste"` | Non-empty Git commit message template. Supports `${uploadedName}`. |
-| `gitpaste.github.conflictStrategy` | `"rename"` | One of `rename`, `overwrite`, or `prompt`; see **Filename Conflicts**. |
-| `gitpaste.fileNameFormat` | Date, time, and random suffix | Remote filename template. Missing image extensions are added from the source name or MIME type. |
-| `gitpaste.fileNameStrategy` | `"timestamp"` | Use the existing timestamp flow or `"hash"` for SHA-256 content-addressed paths and duplicate reuse. |
-| `gitpaste.outputFormat` | `![${uploadedName}](${url})` | Text inserted into the editor. Must include `${url}` and may generate Markdown or HTML. |
-| `gitpaste.includeImageName` | `true` | When `false`, `${uploadedName}` becomes empty; the default output becomes `![](${url})`. |
-| `gitpaste.maxFileSizeMb` | `20` | Client-side size limit for each image; allowed range is 1-100 MB. GitHub may impose additional limits. |
-| `gitpaste.uploadOnPaste` | `true` | Enables ordinary image paste uploads in VS Code for the Web. It is intentionally ignored on desktop, where the dedicated shortcut remains required. |
+| Setting                                | Default                                  | Explanation                                                                                                                                         |
+| -------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gitpaste.github.repository`           | `""`                                     | Required `owner/repository` target. Configure it per workspace when projects use different repositories.                                            |
+| `gitpaste.github.branch`               | `"main"`                                 | Branch receiving upload and deletion commits. Branch names containing `/` are supported.                                                            |
+| `gitpaste.github.path`                 | `"images"`                               | Directory inside the repository. Empty means the repository root; `..` segments are rejected.                                                       |
+| `gitpaste.github.authenticationMethod` | `"github"`                               | `github` uses VS Code sign-in; `pat` uses the token in `SecretStorage`. Normally set by the configuration flow.                                     |
+| `gitpaste.github.publicUrl`            | `""`                                     | Empty uses GitHub's returned raw URL. A custom HTTP(S) template must include `${path}`.                                                             |
+| `gitpaste.github.commitMessage`        | `"Upload ${uploadedName} with GitPaste"` | Non-empty Git commit message template. Supports `${uploadedName}`.                                                                                  |
+| `gitpaste.github.conflictStrategy`     | `"rename"`                               | One of `rename`, `overwrite`, or `prompt`; see **Filename Conflicts**.                                                                              |
+| `gitpaste.fileNameFormat`              | Date, time, and random suffix            | Remote filename template. Missing image extensions are added from the source name or MIME type.                                                     |
+| `gitpaste.fileNameStrategy`            | `"timestamp"`                            | Use the existing timestamp flow or `"hash"` for SHA-256 content-addressed paths and duplicate reuse.                                                |
+| `gitpaste.outputFormat`                | `![${uploadedName}](${url})`             | Text inserted into the editor. Must include `${url}` and may generate Markdown or HTML.                                                             |
+| `gitpaste.includeImageName`            | `true`                                   | When `false`, `${uploadedName}` becomes empty; the default output becomes `![](${url})`.                                                            |
+| `gitpaste.maxFileSizeMb`               | `20`                                     | Client-side size limit for each image; allowed range is 1-100 MB. GitHub may impose additional limits.                                              |
+| `gitpaste.uploadOnPaste`               | `true`                                   | Enables ordinary image paste uploads in VS Code for the Web. It is intentionally ignored on desktop, where the dedicated shortcut remains required. |
 
 The default output is Markdown. To insert an HTML image element instead, customize
 `gitpaste.outputFormat`:
@@ -174,12 +176,12 @@ recommended default for Markdown and MDX files.
 
 ### Template Variables
 
-| Template | Variables |
-| --- | --- |
-| `gitpaste.fileNameFormat` | `${name}`, `${extName}`, `${timestamp}`, `${random}`, `${yyyy}`, `${MM}`, `${dd}`, `${HH}`, `${mm}`, `${ss}`, `${document}` |
-| `gitpaste.github.publicUrl` | `${owner}`, `${repository}`, `${branch}`, `${path}` |
-| `gitpaste.github.commitMessage` | `${uploadedName}` |
-| `gitpaste.outputFormat` | `${uploadedName}`, `${originalName}`, `${url}` |
+| Template                        | Variables                                                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `gitpaste.fileNameFormat`       | `${name}`, `${extName}`, `${timestamp}`, `${random}`, `${yyyy}`, `${MM}`, `${dd}`, `${HH}`, `${mm}`, `${ss}`, `${document}` |
+| `gitpaste.github.publicUrl`     | `${owner}`, `${repository}`, `${branch}`, `${path}`                                                                         |
+| `gitpaste.github.commitMessage` | `${uploadedName}`                                                                                                           |
+| `gitpaste.outputFormat`         | `${uploadedName}`, `${originalName}`, `${url}`                                                                              |
 
 `${random}` is an eight-character hexadecimal value. `${timestamp}` is milliseconds since the Unix epoch. `${document}` is the active document filename after unsafe filename characters are replaced. `${path}` is URL-encoded one repository segment at a time.
 
@@ -192,11 +194,11 @@ GitPaste is a browser-compatible rewrite derived from the MIT-licensed
 original copyright notice required by the MIT license, but it is an independent
 project and is not an official PicGo or vs-picgo release.
 
-| Project | Primary role | Runtime | Storage support |
-| --- | --- | --- | --- |
-| [PicGo](https://github.com/Molunerfinn/PicGo) | Desktop image uploading application and plugin ecosystem | Desktop application | Multiple image hosts through built-in uploaders and plugins |
-| [vs-picgo](https://github.com/PicGo/vs-picgo) | VS Code integration built around PicGo | Desktop VS Code and PicGo/Node.js components | PicGo uploaders and configuration |
-| GitPaste | VS Code Web Extension focused on pasting images into editors | VS Code Web and desktop from the same browser-compatible bundle | GitHub Contents API in the current release |
+| Project                                       | Primary role                                                 | Runtime                                                         | Storage support                                             |
+| --------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| [PicGo](https://github.com/Molunerfinn/PicGo) | Desktop image uploading application and plugin ecosystem     | Desktop application                                             | Multiple image hosts through built-in uploaders and plugins |
+| [vs-picgo](https://github.com/PicGo/vs-picgo) | VS Code integration built around PicGo                       | Desktop VS Code and PicGo/Node.js components                    | PicGo uploaders and configuration                           |
+| GitPaste                                      | VS Code Web Extension focused on pasting images into editors | VS Code Web and desktop from the same browser-compatible bundle | GitHub Contents API in the current release                  |
 
 GitPaste does not load PicGo plugins or PicGo/vs-picgo configuration. It uses
 `gitpaste.*` settings, stores credentials in VS Code `SecretStorage`, and uploads

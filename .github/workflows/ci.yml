@@ -1,15 +1,47 @@
-name: Release GitPaste
+name: GitPaste CI
 
 on:
   push:
     tags:
       - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
 jobs:
-  test-and-release:
+  check:
+    name: Lint, type-check and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run check
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+  release:
+    name: Build and publish VSIX
+    needs: check
+    # Only release from a version tag; pull requests never publish.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -26,12 +58,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Run unit tests
-        run: npm test
 
       - name: Build VSIX
         run: npm run build
@@ -61,6 +87,9 @@ jobs:
   # live browser download plus external services. A flaky or environment-driven
   # failure here must never block a release, so this job is non-blocking.
   web-tests:
+    name: Web integration tests (non-blocking)
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
