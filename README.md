@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/SWHL/GitPaste/refs/heads/main/assets/gitpaste-logo-dark.svg">
-    <img src="https://raw.githubusercontent.com/SWHL/GitPaste/refs/heads/main/assets/gitpaste-logo-light.svg" width="128" height="128" alt="GitPaste logo">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/SWHL/GitPaste/refs/heads/main/assets/gitpaste-logo-dark.png">
+    <img src="https://raw.githubusercontent.com/SWHL/GitPaste/refs/heads/main/assets/gitpaste-logo-light.png" width="128" height="128" alt="GitPaste logo">
   </picture>
 </p>
 
