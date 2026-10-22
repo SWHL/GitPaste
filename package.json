@@ -238,7 +238,7 @@
     "test": "npm run check && npm run test:unit",
     "test:unit": "tsc -p tsconfig.test.json && node --require ./test/support/register-vscode.cjs --test .test-dist/test/*.test.js",
     "test:web": "npm run compile && vscode-test-web --browser chromium --headless --quality stable --commit 33fc5a94a3f99ebe7087e8fe79fbe1d37a251016 --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js .",
-    "build": "npm run package && vsce package --no-dependencies --no-yarn -o gitpaste.vsix"
+    "build": "npm run package && vsce package --no-dependencies --no-yarn -o \"gitpaste-v$(node -p \"require('./package.json').version\").vsix\""
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

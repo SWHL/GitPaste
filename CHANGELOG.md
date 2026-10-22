@@ -1,29 +1,6 @@
 # Changelog
 
-## Unreleased
-
-### Improved
-
-- **Cancellation is now propagated to HTTP requests.** VS Code cancellation tokens are bridged to `AbortSignal`, so canceling an upload or dismissing the progress notification actually aborts the in-flight `fetch` calls to GitHub (`src/service.ts`, `src/providers/github.ts`).
-- **Upload failures are reported instead of swallowed.** When an entire batch fails (or is skipped), GitPaste throws a descriptive error rather than a `CancellationError`, so a silently dropped upload is no longer possible. User-initiated cancellations remain distinct and trigger rollback of created files.
-- **Batch failures use a single aggregated dialog.** A whole failed batch is presented once with Retry all / Skip failed / Stop, instead of one stacked modal per image.
-- **Paste placeholder application is robust to coalesced edits and auto-formatting.** Placeholder detection is now text-based (`src/paste-placeholder.ts`) rather than depending on an exact `contentChange` match, so uploads start reliably even when the editor merges or reformats the insertion.
-
-### Fixed
-
-- Added a runtime validation for `gitpaste.maxFileSizeMb`: values outside the `1`–`100` MB range (or a non-number) are rejected with a clear message instead of being silently accepted.
-
-### Tests
-
-- Added a minimal `vscode` mock and resolver so `service.ts` and `credentials.ts` run under `node --test` without a VS Code host.
-- Added `test/service.test.ts` (single/multi upload, cancellation propagation, overwrite/rename conflict handling, hash-mode reuse, total-failure reporting, delete + abort) and `test/credentials.test.ts` (OAuth vs PAT, prompt/verify/persist, dismissal, sign-in cleanup).
-- Added `test/paste-placeholder.test.ts` covering single/multi-image detection, partial placeholders, and CRLF-resilient detection.
-
-### CI
-
-- Added a `pull_request` gate to `.github/workflows/ci.yml`. Pull requests run lint, type-check, and unit tests; release and web-tests remain tag-only.
-
-## 0.8.0
+## 0.7.2
 
 ### Added
 
@@ -35,7 +12,10 @@
 
 ### Improved
 
-- Rewrote `toBase64` to accumulate chunks in an array and join once, removing the `String.fromCharCode(...)` spread that could overflow the argument limit on large files and the O(n²) string concatenation.
+- **Cancellation is now propagated to HTTP requests.** VS Code cancellation tokens are bridged to `AbortSignal`, so canceling an upload or dismissing the progress notification actually aborts the in-flight `fetch` calls to GitHub (`src/service.ts`, `src/providers/github.ts`).
+- **Upload failures are reported instead of swallowed.** When an entire batch fails (or is skipped), GitPaste throws a descriptive error rather than a `CancellationError`, so a silently dropped upload is no longer possible. User-initiated cancellations remain distinct and trigger rollback of created files.
+- **Batch failures use a single aggregated dialog.** A whole failed batch is presented once with Retry all / Skip failed / Stop, instead of one stacked modal per image.
+- **Paste placeholder application is robust to coalesced edits and auto-formatting.** Placeholder detection is now text-based (`src/paste-placeholder.ts`) rather than depending on an exact `contentChange` match, so uploads start reliably even when the editor merges or reformats the insertion.- Rewrote `toBase64` to accumulate chunks in an array and join once, removing the `String.fromCharCode(...)` spread that could overflow the argument limit on large files and the O(n²) string concatenation.
 - Replaced the drag-and-paste deduplication key (`Array.from(image.data).join(',')`, which serialized the entire image) with file length + name + FNV-1a content hash.
 - Multi-image uploads now run with bounded concurrency (3 at a time) instead of strictly sequentially, while preserving per-image retry, skip, cancellation, and cleanup.
 - `formatBytes` now adapts between B, KB, MB, and GB instead of always reporting megabytes.
@@ -43,6 +23,7 @@
 
 ### Fixed
 
+- Added a runtime validation for `gitpaste.maxFileSizeMb`: values outside the `1`–`100` MB range (or a non-number) are rejected with a clear message instead of being silently accepted.
 - Concurrency uploads now return results in input order so multi-image Markdown links are inserted into the correct placeholders.
 - `preflightContentLength` treats a missing `content-length` header as unknown instead of misreading `Number(null)` (`0`) as a valid size.
 - The SHA-256 digest call in `naming.ts` now uses a precise `BufferSource` assertion instead of `any`.
@@ -51,8 +32,15 @@
 
 ### Tests
 
+- Added a minimal `vscode` mock and resolver so `service.ts` and `credentials.ts` run under `node --test` without a VS Code host.
+- Added `test/service.test.ts` (single/multi upload, cancellation propagation, overwrite/rename conflict handling, hash-mode reuse, total-failure reporting, delete + abort) and `test/credentials.test.ts` (OAuth vs PAT, prompt/verify/persist, dismissal, sign-in cleanup).
+- Added `test/paste-placeholder.test.ts` covering single/multi-image detection, partial placeholders, and CRLF-resilient detection.
 - Added `test/util.test.ts` covering every shared helper, including a large-payload `toBase64` round-trip, `formatBytes` unit boundaries, `dedupKey`, and `mapWithConcurrency` ordering, limit, and error propagation.
 - Added `rawGitHubUrl` builder coverage in `test/public-url.test.ts`.
+
+### CI
+
+- Added a `pull_request` gate to `.github/workflows/ci.yml`. Pull requests run lint, type-check, and unit tests; release and web-tests remain tag-only.
 
 ## 0.7.1
 

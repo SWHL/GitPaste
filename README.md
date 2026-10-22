@@ -227,13 +227,20 @@ npm run package
 Releases are driven by version tags. Push a tag matching `vX.Y.Z` (for example,
 `v0.8.0`) to start the release workflow in `.github/workflows/ci.yml`:
 
-1. The workflow reads the version from the tag and applies it only in the CI
-   workspace before installing dependencies and building the VSIX.
+1. The workflow reads the version from the tag (`vX.Y.Z` → `X.Y.Z`) and applies it to
+   `package.json` in the CI workspace before installing dependencies. The built VSIX
+   is named `gitpaste-vX.Y.Z.vsix`.
 2. The repository's `package.json`, `package-lock.json`, and `CHANGELOG.md` are
    not modified or pushed by CI. The tag is the source of truth for the final
    VSIX version.
-3. Tests run, the VSIX is built, and a GitHub Release is created with GitHub's
-   automatically generated release notes.
+3. Tests run and the VSIX is built, then a GitHub Release is created whose release
+   notes are taken from the `## X.Y.Z` section of `CHANGELOG.md` that matches the tag
+   version. The CI matches the version **exactly** (tag `v0.8.0` → heading `## 0.8.0`).
+4. **Before pushing the tag**, move the `## Unreleased` content under the
+   corresponding `## X.Y.Z` heading in `CHANGELOG.md`. The CI matches the version
+   exactly; if no matching section exists, the release job fails with
+   `No CHANGELOG entry found for version X.Y.Z`. This keeps the Release notes aligned
+   with the actual version.
 
 The workflow requires the repository's GitHub Actions token to have `Contents:
 Write` permission so it can create the GitHub Release. The version shown in the
