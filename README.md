@@ -222,6 +222,30 @@ npm run package
 
 `npm run package` emits `dist/web/extension.js`, a single Web Worker bundle. VS Code desktop can run the same browser entry point.
 
+### Release procedure
+
+Releases are fully tag-driven, so the order matters. The matching `CHANGELOG.md`
+entry must already exist when the tag is pushed, or the `release` job fails.
+
+1. Finish the code changes for the release and commit them.
+2. Add a `## X.Y.Z` section to `CHANGELOG.md` describing the changes. If you keep a
+   `## Unreleased` section, move its content under the new `## X.Y.Z` heading. The
+   heading must match the tag version **exactly** (tag `v0.8.0` → heading
+   `## 0.8.0`); otherwise the `release` job fails with
+   `No CHANGELOG entry found for version X.Y.Z`.
+3. Optionally update the `version` field in `package.json` to `X.Y.Z` and commit the
+   changelog and manifest together. This is **not** required for the release to
+   succeed — during the build CI overrides `package.json` from the tag via
+   `npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version` — but keeping the two
+   in sync is the project convention.
+4. Create and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+5. The CI `check` job (lint, type-check, unit tests) runs first. If it passes, the
+   `release` job extracts the `## X.Y.Z` notes from `CHANGELOG.md`, builds
+   `gitpaste-vX.Y.Z.vsix`, and creates the GitHub Release.
+
+The source repository's files and history are not modified by releasing: the tag is
+just a pointer, and the GitHub Release and VSIX are separate artifacts.
+
 ### Release automation
 
 Releases are driven by version tags. Push a tag matching `vX.Y.Z` (for example,
@@ -236,11 +260,10 @@ Releases are driven by version tags. Push a tag matching `vX.Y.Z` (for example,
 3. Tests run and the VSIX is built, then a GitHub Release is created whose release
    notes are taken from the `## X.Y.Z` section of `CHANGELOG.md` that matches the tag
    version. The CI matches the version **exactly** (tag `v0.8.0` → heading `## 0.8.0`).
-4. **Before pushing the tag**, move the `## Unreleased` content under the
-   corresponding `## X.Y.Z` heading in `CHANGELOG.md`. The CI matches the version
+4. The matching `## X.Y.Z` section must already exist in `CHANGELOG.md` before the
+   tag is pushed — see **Release procedure** above. The CI matches the version
    exactly; if no matching section exists, the release job fails with
-   `No CHANGELOG entry found for version X.Y.Z`. This keeps the Release notes aligned
-   with the actual version.
+   `No CHANGELOG entry found for version X.Y.Z`.
 
 The workflow requires the repository's GitHub Actions token to have `Contents:
 Write` permission so it can create the GitHub Release. The version shown in the
