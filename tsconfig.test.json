@@ -17,6 +17,7 @@
     "src/types.ts",
     "src/explicit-paste-request.ts",
     "src/util.ts",
+    "test/support/fake-document.ts",
     "test/*.test.ts"
   ]
 }

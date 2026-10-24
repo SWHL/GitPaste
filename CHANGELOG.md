@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0
+
+### Tests
+
+- Closed the last unit-test coverage gap: added `test/paste-provider.test.ts` and `test/tracked-document-range.test.ts`, covering the core paste/drop/replace path and insertion-range tracking that were previously untested (module coverage is now 16/16).
+- `test/paste-provider.test.ts` exercises the paste guard (Markdown allowed, non-Markdown guidance, empty clipboards, desktop `uploadOnPaste` ignored), drop delegation, web placeholder plus upload orchestration, replacement (single-image requirement, old-URL reporting), `pasteFromClipboard`, explicit paste requests, drag-and-drop uploads including `text/uri-list` parsing, de-duplication, non-image skipping, and cancellation.
+- `test/tracked-document-range.test.ts` covers initial validity, before-range and after-range insertion offsets, overlap invalidation, document-close invalidation, `dispose`, and `resolve`.
+- Added `test/support/fake-document.ts` with `FakeTextDocument` (offset/position mapping, text access, mock registration) and `FakeDataTransfer`/`FakeDataTransferItem` plus `imageItem`/`uriListItem` helpers.
+- Extended `test/support/vscode-mock.cjs` with `Range`, `Position`, `Uri`, `EventEmitter`, `DocumentDropOrPasteEditKind`, `DocumentPasteEdit`, `DocumentDropEdit`, `WorkspaceEdit`, `commands`, `languages`, workspace change/close event registration and emission, `applyEdit`, `fs`, and a document registry so the paste provider and range tracker run under `node --test`.
+- Updated `tsconfig.test.json` to include the new support module.
+
+### Improved
+
+- The shared vscode test mock now supports document lifecycle events, enabling deterministic tests for editor-driven upload flows without a VS Code host.
+
 ## 0.7.2
 
 ### Added
